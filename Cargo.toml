@@ -1,0 +1,7 @@
+[package]
+name = "synapse-password-reset"
+version = "0.1.0"
+authors = ["Euan Kemp <euank@euank.com>"]
+
+[dependencies]
+nickel = "*"
