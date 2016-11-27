@@ -1,19 +1,25 @@
 extern crate clap;
+extern crate crypto;
 #[macro_use]
 extern crate nickel;
 extern crate nickel_mustache;
 extern crate rustc_serialize;
+extern crate rand;
 
 use std::ascii::AsciiExt;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
+use rand::os::OsRng;
+use rand::Rng;
 
 use nickel::status::StatusCode;
 use nickel::{Nickel, HttpRouter, FormBody};
 use nickel_mustache::Render;
 
 use clap::{App, Arg};
+
+use crypto::bcrypt;
 
 
 fn main() {
@@ -34,7 +40,8 @@ fn main() {
                                   .long("pepper")
                                   .required(true),
                               Arg::with_name("db")
-                                  .help("sets the postgres db to connect to (including username,pass)")
+                                  .help("sets the postgres db to connect to (including \
+                                         username,pass)")
                                   .takes_value(true)
                                   .short("d")
                                   .long("db")
@@ -63,6 +70,7 @@ fn main() {
         let account_info =
             form_body.and_then(|form| {
                 let uname: Result<&str, String> = form.get("username")
+                    .map(|u| u.trim())
                     .and_then(|x| {
                         match x {"" => None, x => Some(x)}
                     })
@@ -125,6 +133,13 @@ fn main() {
     let _ = server.listen("127.0.0.1:6767").unwrap();
 }
 
+fn validate_password(pass: &str) -> Result<(), &str> {
+    if pass.len() < 10 {
+        return Err("password must be at least 10 characters long");
+    }
+    Ok(())
+}
+
 fn validate_uname_and_token(uname: &str, token: &str) -> bool {
     // token database is just the filesystem (fuckit shipit).
     // Tokens are stored in the hierarchy "tokens/$token" relative to the program's cwd.
@@ -166,5 +181,13 @@ fn hash_password(password: &str, pepper: &str) -> String {
 
     // Match the default from synapse arbitrarily
     let bcrypt_rounds = 12;
-    "hash TODO".to_string()
+
+    let mut salt = [0u8; 16];
+    let mut rng = OsRng::new().unwrap();
+    rng.fill_bytes(&mut salt[..]);
+    let mut output = [0u8; 24];
+
+    bcrypt::bcrypt(bcrypt_rounds, &salt[..], format!("{}{}", password, pepper).as_bytes(), &mut output[..]);
+
+    output.iter().map(|b| format!("{:X}", b).to_string()).collect::<Vec<String>>().join("")
 }

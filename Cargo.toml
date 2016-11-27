@@ -8,3 +8,5 @@ nickel = "*"
 nickel_mustache = { git = "https://github.com/euank/nickel-mustache" }
 rustc-serialize = "*"
 clap = "*"
+rust-crypto = "*"
+rand = "0.3"
