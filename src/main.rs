@@ -1,35 +1,52 @@
 #[macro_use]
 extern crate nickel;
+extern crate nickel_mustache;
+extern crate rustc_serialize;
 
 use std::collections::HashMap;
-use std::convert::From;
 use std::path::Path;
+use nickel_mustache::Render;
 use nickel::{Nickel, HttpRouter, StaticFilesHandler, FormBody};
-use nickel::{NickelError, Response};
 use nickel::status::StatusCode;
 use std::ascii::AsciiExt;
+
 
 fn main() {
     let mut server = Nickel::new();
 
-    server.utilize(StaticFilesHandler::new("public/"));
+    server.get("/",
+               middleware!{ |_req, res|
+        let mut data: HashMap<String, String> = HashMap::new();
+        return Render::render(res, "public/index.tpl", &data);
+    });
+
     server.post("/",
                 middleware! {|req, mut res|
         let form_body = req.form_body().or_else(|err| {
             Err("No form body available".to_string())
         });
 
-        let account_info = 
+        let account_info =
             form_body.and_then(|form| {
-                let uname: Result<&str, String> = form.get("username").ok_or({
-                    "Username must be set".to_string()
-                });
+                let uname: Result<&str, String> = form.get("username")
+                    .and_then(|x| {
+                        match x {"" => None, x => Some(x)}
+                    })
+                    .ok_or({"Username must be set".to_string()});
 
-                let token = form.get("token").ok_or({
+                let token = form.get("token")
+                    .and_then(|x| {
+                        match x {"" => None, x => Some(x)}
+                    })
+                    .ok_or({
                     "Token must be set".to_string()
                 });
 
-                let pass = form.get("password").ok_or({
+                let pass = form.get("password")
+                    .and_then(|x| {
+                        match x {"" => None, x => Some(x)}
+                    })
+                    .ok_or({
                     "Password must be set".to_string()
                 });
 
@@ -50,18 +67,21 @@ fn main() {
                 return Err("invalid username or token".to_string());
             }
             // set_new_password(uname, pass); // TODO
-            Ok("We did it boys".to_string())
+            Ok("Password changed".to_string())
         });
 
+        let mut data = HashMap::new();
         match output {
             Ok(o) => {
-                o
+                data.insert("notice", o);
             }
             Err(e) => {
                 res.set(StatusCode::BadRequest);
-                e
+                data.insert("notice", e);
             }
-        }
+        };
+
+        return Render::render(res, "public/index.tpl", &data)
     });
 
 

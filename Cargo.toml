@@ -5,3 +5,6 @@ authors = ["Euan Kemp <euank@euank.com>"]
 
 [dependencies]
 nickel = "*"
+nickel_mustache = { git = "https://github.com/euank/nickel-mustache" }
+
+rustc-serialize = "*"

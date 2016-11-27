@@ -9,6 +9,8 @@
   <body>
     <h1>So, you forgot your password</h1>
 
+    <h2> {{ notice }} </h2>
+
     <form method="POST">
       Username: <br>
       <input type="text" name="username" /><br>
