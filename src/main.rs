@@ -105,6 +105,7 @@ fn main() {
             // now that we've gathered the information, validate that this is a legit request and
             // do the password reset
 
+            validate_password(pass)?;
             if !validate_uname_and_token(uname, token) {
                 return Err("invalid username or token".to_string());
             }
