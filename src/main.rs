@@ -3,27 +3,30 @@ extern crate nickel;
 extern crate nickel_mustache;
 extern crate rustc_serialize;
 
-use std::collections::HashMap;
-use std::path::Path;
-use nickel_mustache::Render;
-use nickel::{Nickel, HttpRouter, StaticFilesHandler, FormBody};
-use nickel::status::StatusCode;
 use std::ascii::AsciiExt;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::prelude::*;
+
+use nickel::status::StatusCode;
+use nickel::{Nickel, HttpRouter, FormBody};
+use nickel_mustache::Render;
 
 
 fn main() {
     let mut server = Nickel::new();
 
     server.get("/",
-               middleware!{ |_req, res|
-        let mut data: HashMap<String, String> = HashMap::new();
+               middleware!{ |_, res|
+        let data: HashMap<String, String> = HashMap::new();
         return Render::render(res, "public/index.tpl", &data);
     });
 
     server.post("/",
                 middleware! {|req, mut res|
         let form_body = req.form_body().or_else(|err| {
-            Err("No form body available".to_string())
+            let (_, body_err) = err;
+            Err(format!("No form body available: {}", body_err).to_string())
         });
 
         let account_info =
@@ -98,5 +101,18 @@ fn validate_uname_and_token(uname: &str, token: &str) -> bool {
     if !token.chars().all(|c| c.is_ascii() && c.is_alphanumeric()) {
         return false;
     }
-    Path::new(format!("tokens/{}", token).as_str()).exists()
+
+    let mut f = match File::open(format!("tokens/{}", token).as_str()) {
+        Ok(f) => f,
+        Err(_) => {
+            return false
+        }
+    };
+
+    let mut token_uname = String::new();
+    if !f.read_to_string(&mut token_uname).is_ok() {
+        return false;
+    }
+
+    token_uname.trim() == uname
 }

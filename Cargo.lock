@@ -3,7 +3,7 @@ name = "synapse-password-reset"
 version = "0.1.0"
 dependencies = [
  "nickel 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "nickel_mustache 0.1.0",
+ "nickel_mustache 0.1.0 (git+https://github.com/euank/nickel-mustache)",
  "rustc-serialize 0.3.21 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -158,6 +158,7 @@ dependencies = [
 [[package]]
 name = "nickel_mustache"
 version = "0.1.0"
+source = "git+https://github.com/euank/nickel-mustache#391fb5b321bf53ea6392986d5fafa38793286f33"
 dependencies = [
  "mustache 0.6.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "nickel 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -346,6 +347,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum modifier 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "41f5c9112cb662acd3b204077e0de5bc66305fa8df65c8019d5adb10e9ab6e58"
 "checksum mustache 0.6.3 (registry+https://github.com/rust-lang/crates.io-index)" = "f2fac05c29a9b1fe86c828ec974d6f027679576711a246711c476e548bf7d741"
 "checksum nickel 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "14bdda46396b6447ae5f22b74296cb517d5c4659f31e3cfb5351bdd8e129791d"
+"checksum nickel_mustache 0.1.0 (git+https://github.com/euank/nickel-mustache)" = "<none>"
 "checksum num_cpus 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8890e6084723d57d0df8d2720b0d60c6ee67d6c93e7169630e4371e88765dcad"
 "checksum plugin 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)" = "1a6a0dc3910bc8db877ffed8e457763b317cf880df4ae19109b9f77d277cf6e0"
 "checksum regex 0.1.80 (registry+https://github.com/rust-lang/crates.io-index)" = "4fd4ace6a8cf7860714a2c2280d6c1f7e6a413486c13298bbc86fd3da019402f"
