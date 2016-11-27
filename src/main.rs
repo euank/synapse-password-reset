@@ -1,3 +1,4 @@
+extern crate clap;
 #[macro_use]
 extern crate nickel;
 extern crate nickel_mustache;
@@ -12,8 +13,38 @@ use nickel::status::StatusCode;
 use nickel::{Nickel, HttpRouter, FormBody};
 use nickel_mustache::Render;
 
+use clap::{App, Arg};
+
 
 fn main() {
+
+    let matches = App::new("synapse-password-reset")
+                      .version("v0.0.1")
+                      .author("Euan Kemp <euank@euank.com>")
+                      .args(&[Arg::with_name("token-dir")
+                                  .help("sets the database directory to use")
+                                  .takes_value(true)
+                                  .short("t")
+                                  .long("token-dir")
+                                  .required(true),
+                              Arg::with_name("pepper")
+                                  .help("sets the hash pepper (e.g. from your synapse config)")
+                                  .takes_value(true)
+                                  .short("p")
+                                  .long("pepper")
+                                  .required(true),
+                              Arg::with_name("db")
+                                  .help("sets the postgres db to connect to (including username,pass)")
+                                  .takes_value(true)
+                                  .short("d")
+                                  .long("db")
+                                  .required(true)])
+                      .get_matches();
+
+    let token_dir = matches.value_of("token-dir").unwrap();
+    let pepper = matches.value_of("pepper").unwrap();
+    let db = matches.value_of("db").unwrap();
+
     let mut server = Nickel::new();
 
     server.get("/",
@@ -69,8 +100,11 @@ fn main() {
             if !validate_uname_and_token(uname, token) {
                 return Err("invalid username or token".to_string());
             }
-            // set_new_password(uname, pass); // TODO
-            Ok("Password changed".to_string())
+            set_new_password(uname, pass); // TODO
+            if !delete_token(token).is_ok() {
+                return Err("unable to invalidate your token, please talk to an administrator".to_string());
+            }
+            Ok("Password changed!".to_string())
         });
 
         let mut data = HashMap::new();
@@ -93,7 +127,7 @@ fn main() {
 
 fn validate_uname_and_token(uname: &str, token: &str) -> bool {
     // token database is just the filesystem (fuckit shipit).
-    // Tokens are stored in the hierarchy "tokens/token" relative to the program's cwd.
+    // Tokens are stored in the hierarchy "tokens/$token" relative to the program's cwd.
     // The token file contains the string "username".
     //
     // For obvious security reasons, '.' and '/' should be invalid in the token. Just assert it's
@@ -104,9 +138,7 @@ fn validate_uname_and_token(uname: &str, token: &str) -> bool {
 
     let mut f = match File::open(format!("tokens/{}", token).as_str()) {
         Ok(f) => f,
-        Err(_) => {
-            return false
-        }
+        Err(_) => return false,
     };
 
     let mut token_uname = String::new();
@@ -115,4 +147,24 @@ fn validate_uname_and_token(uname: &str, token: &str) -> bool {
     }
 
     token_uname.trim() == uname
+}
+
+// delete_token should be called after validate_uname_and_token since it assumes the token has been
+// validated
+fn delete_token(token: &str) -> std::io::Result<()> {
+    std::fs::remove_file(format!("tokens/{}", token).as_str())
+}
+
+fn set_new_password(uname: &str, password: &str) -> Result<(), String> {
+    // Here there be postgresql dragons
+    Ok(())
+}
+
+fn hash_password(password: &str, pepper: &str) -> String {
+    // This function closely mimics
+    // https://github.com/matrix-org/synapse/blob/9bba6ebaa903a81cd94fada114aa71e20b685adb/scripts/hash_password
+
+    // Match the default from synapse arbitrarily
+    let bcrypt_rounds = 12;
+    "hash TODO".to_string()
 }
