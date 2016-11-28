@@ -96,13 +96,7 @@ fn main() {
                     })
                     .ok_or({"Password must be set".to_string()});
 
-                uname.and_then(|u| {
-                    token.and_then(|t| {
-                        pass.and_then(|p| {
-                            Ok((u, t, p))
-                        })
-                    })
-                })
+                Ok((uname?, token?, pass?))
             });
 
         let output = account_info.and_then(|(uname, token, pass): (&str, &str, &str)| {
