@@ -5,10 +5,14 @@ extern crate nickel;
 extern crate nickel_mustache;
 extern crate rustc_serialize;
 extern crate rand;
+extern crate postgres;
+
 
 use std::ascii::AsciiExt;
 use std::collections::HashMap;
+use std::error::Error;
 use std::fs::File;
+use std::fmt;
 use std::io::prelude::*;
 use rand::os::OsRng;
 use rand::Rng;
@@ -20,6 +24,8 @@ use nickel_mustache::Render;
 use clap::{App, Arg};
 
 use crypto::bcrypt;
+
+use postgres::{Connection, TlsMode};
 
 
 fn main() {
@@ -104,7 +110,10 @@ fn main() {
 
             validate_password(pass)?;
             validate_uname_and_token(uname, token)?;
-            set_new_password(uname, pass)?;
+
+            let pw_hash = hash_password(pass, pepper);
+
+            set_new_password(db, uname, pw_hash.as_ref())?;
             if !delete_token(token).is_ok() {
                 return Err("unable to invalidate your token, please talk to an administrator".to_string());
             }
@@ -169,9 +178,22 @@ fn delete_token(token: &str) -> std::io::Result<()> {
     std::fs::remove_file(format!("tokens/{}", token).as_str())
 }
 
-fn set_new_password(uname: &str, password: &str) -> Result<(), String> {
-    // Here there be postgresql dragons
-    Ok(())
+
+
+fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(), SetPwError> {
+    // TODO, connection pooling a level above this function
+    let conn = Connection::connect(db_conn, TlsMode::None)?;
+    // Based on the synapse readme here: https://github.com/matrix-org/synapse/blob/f9834a3d1a25d0a715718a53e10752399985e3aa/README.rst#password-reset
+    // UPDATE users SET password_hash='$2a$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' WHERE
+    // name='@test:test.com';
+    // is the query we want
+    let updates = conn.execute("UPDATE users SET password_hash = $1 WHERE name = $2", &[&password_hash, &uname])?;
+
+    match updates {
+        0 => Err(SetPwError::InvalidUserError()),
+        1 => Ok(()),
+        _ => Err(SetPwError::UnexpectedError()),
+    }
 }
 
 fn hash_password(password: &str, pepper: &str) -> String {
@@ -192,4 +214,57 @@ fn hash_password(password: &str, pepper: &str) -> String {
                    &mut output[..]);
 
     output.iter().map(|b| format!("{:X}", b).to_string()).collect::<Vec<String>>().join("")
+}
+
+#[derive(Debug)]
+enum SetPwError {
+    PgConnectError(postgres::error::ConnectError),
+    PgError(postgres::error::Error),
+    InvalidUserError(),
+    UnexpectedError(),
+}
+
+impl fmt::Display for SetPwError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SetPwError::PgError(ref err) => write!(f, "postgres error: {}", err),
+            SetPwError::InvalidUserError() => write!(f, "invalid user error"),
+            SetPwError::UnexpectedError() => write!(f, "unexpected error"),
+        }
+    }
+}
+
+impl Error for SetPwError {
+    fn description(&self) -> &str {
+        match *self {
+            SetPwError::PgError(ref err) => err.description(),
+            SetPwError::InvalidUserError() => "invalid user",
+            SetPwError::UnexpectedError() => "unexpected error",
+        }
+    }
+
+    fn cause(&self) -> Option<&Error> {
+        match *self {
+            SetPwError::PgError(ref err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<postgres::error::ConnectError> for SetPwError {
+    fn from(err: postgres::error::ConnectError) -> SetPwError {
+        SetPwError::PgConnectError(err)
+    }
+}
+
+impl From<postgres::error::Error> for SetPwError {
+    fn from(err: postgres::error::Error) -> SetPwError {
+        SetPwError::PgError(err)
+    }
+}
+
+impl From<SetPwError> for String {
+    fn from(SetPwError) -> String {
+        self.description().to_string()
+    }
 }
