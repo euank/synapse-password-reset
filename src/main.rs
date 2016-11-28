@@ -169,7 +169,7 @@ fn delete_token(token: &str) -> std::io::Result<()> {
     std::fs::remove_file(format!("tokens/{}", token).as_str())
 }
 
-fn set_new_password<'a, 'b>(uname: &'a str, password: &'a str) -> Result<(), &'b str> {
+fn set_new_password(uname: &str, password: &str) -> Result<(), String> {
     // Here there be postgresql dragons
     Ok(())
 }
