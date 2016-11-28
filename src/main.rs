@@ -8,6 +8,7 @@ extern crate rand;
 extern crate postgres;
 
 
+use std::path::Path;
 use std::ascii::AsciiExt;
 use std::collections::HashMap;
 use std::error::Error;
@@ -109,12 +110,12 @@ fn main() {
             // do the password reset
 
             validate_password(pass)?;
-            validate_uname_and_token(uname, token)?;
+            validate_uname_and_token(token_dir, uname, token)?;
 
-            let pw_hash = hash_password(pass, &*pepper);
+            let pw_hash = hash_password(pass, pepper);
 
             set_new_password(db, uname, pw_hash.as_ref())?;
-            if !delete_token(token).is_ok() {
+            if !delete_token(token_dir, token).is_ok() {
                 return Err("unable to invalidate your token, please talk to an administrator".to_string());
             }
             Ok("Password changed!".to_string())
@@ -145,7 +146,7 @@ fn validate_password(pass: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_uname_and_token(uname: &str, token: &str) -> Result<(), String> {
+fn validate_uname_and_token(token_dir: &str, uname: &str, token: &str) -> Result<(), String> {
     // token database is just the filesystem (fuckit shipit).
     // Tokens are stored in the hierarchy "tokens/$token" relative to the program's cwd.
     // The token file contains the string "username".
@@ -156,7 +157,8 @@ fn validate_uname_and_token(uname: &str, token: &str) -> Result<(), String> {
         return Err("token must be ascii/alphanumeric".to_string());
     }
 
-    let mut f = match File::open(format!("tokens/{}", token).as_str()) {
+    let token_path = Path::new(token_dir).join(format!("tokens/{}", token).as_str());
+    let mut f = match File::open(token_path) {
         Ok(f) => f,
         Err(_) => return Err("invalid token".to_string()), // TODO log non-ENOENT errs
     };
@@ -174,8 +176,9 @@ fn validate_uname_and_token(uname: &str, token: &str) -> Result<(), String> {
 
 // delete_token should be called after validate_uname_and_token since it assumes the token has been
 // validated
-fn delete_token(token: &str) -> std::io::Result<()> {
-    std::fs::remove_file(format!("tokens/{}", token).as_str())
+fn delete_token(token_dir: &str, token: &str) -> std::io::Result<()> {
+    let token_path = Path::new(token_dir).join(format!("tokens/{}", token).as_str());
+    std::fs::remove_file(token_path)
 }
 
 
