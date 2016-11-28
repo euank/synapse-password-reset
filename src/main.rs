@@ -29,7 +29,6 @@ use postgres::{Connection, TlsMode};
 
 
 fn main() {
-
     let matches = App::new("synapse-password-reset")
         .version("v0.0.1")
         .author("Euan Kemp <euank@euank.com>")
@@ -53,10 +52,6 @@ fn main() {
                     .required(true)])
         .get_matches();
 
-    let token_dir = matches.value_of("token-dir").unwrap();
-    let pepper = matches.value_of("pepper").unwrap();
-    let db = matches.value_of("db").unwrap();
-
     let mut server = Nickel::new();
 
     server.get("/",
@@ -67,6 +62,11 @@ fn main() {
 
     server.post("/",
                 middleware! {|req, mut res|
+
+        let token_dir = matches.value_of("token-dir").unwrap();
+        let pepper = matches.value_of("pepper").unwrap();
+        let db = matches.value_of("db").unwrap();
+
         let form_body = req.form_body().or_else(|err| {
             let (_, body_err) = err;
             Err(format!("no form body available: {}", body_err))
@@ -111,7 +111,7 @@ fn main() {
             validate_password(pass)?;
             validate_uname_and_token(uname, token)?;
 
-            let pw_hash = hash_password(pass, pepper);
+            let pw_hash = hash_password(pass, &*pepper);
 
             set_new_password(db, uname, pw_hash.as_ref())?;
             if !delete_token(token).is_ok() {
@@ -187,7 +187,8 @@ fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(
     // UPDATE users SET password_hash='$2a$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' WHERE
     // name='@test:test.com';
     // is the query we want
-    let updates = conn.execute("UPDATE users SET password_hash = $1 WHERE name = $2", &[&password_hash, &uname])?;
+    let updates = conn.execute("UPDATE users SET password_hash = $1 WHERE name = $2",
+                 &[&password_hash, &uname])?;
 
     match updates {
         0 => Err(SetPwError::InvalidUserError()),
@@ -228,6 +229,7 @@ impl fmt::Display for SetPwError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             SetPwError::PgError(ref err) => write!(f, "postgres error: {}", err),
+            SetPwError::PgConnectError(ref err) => write!(f, "postgres error: {}", err),
             SetPwError::InvalidUserError() => write!(f, "invalid user error"),
             SetPwError::UnexpectedError() => write!(f, "unexpected error"),
         }
@@ -238,6 +240,7 @@ impl Error for SetPwError {
     fn description(&self) -> &str {
         match *self {
             SetPwError::PgError(ref err) => err.description(),
+            SetPwError::PgConnectError(ref err) => err.description(),
             SetPwError::InvalidUserError() => "invalid user",
             SetPwError::UnexpectedError() => "unexpected error",
         }
@@ -264,7 +267,7 @@ impl From<postgres::error::Error> for SetPwError {
 }
 
 impl From<SetPwError> for String {
-    fn from(SetPwError) -> String {
-        self.description().to_string()
+    fn from(err: SetPwError) -> String {
+        err.description().to_string()
     }
 }
