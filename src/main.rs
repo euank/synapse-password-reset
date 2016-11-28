@@ -25,28 +25,27 @@ use crypto::bcrypt;
 fn main() {
 
     let matches = App::new("synapse-password-reset")
-                      .version("v0.0.1")
-                      .author("Euan Kemp <euank@euank.com>")
-                      .args(&[Arg::with_name("token-dir")
-                                  .help("sets the database directory to use")
-                                  .takes_value(true)
-                                  .short("t")
-                                  .long("token-dir")
-                                  .required(true),
-                              Arg::with_name("pepper")
-                                  .help("sets the hash pepper (e.g. from your synapse config)")
-                                  .takes_value(true)
-                                  .short("p")
-                                  .long("pepper")
-                                  .required(true),
-                              Arg::with_name("db")
-                                  .help("sets the postgres db to connect to (including \
-                                         username,pass)")
-                                  .takes_value(true)
-                                  .short("d")
-                                  .long("db")
-                                  .required(true)])
-                      .get_matches();
+        .version("v0.0.1")
+        .author("Euan Kemp <euank@euank.com>")
+        .args(&[Arg::with_name("token-dir")
+                    .help("sets the database directory to use")
+                    .takes_value(true)
+                    .short("t")
+                    .long("token-dir")
+                    .required(true),
+                Arg::with_name("pepper")
+                    .help("sets the hash pepper (e.g. from your synapse config)")
+                    .takes_value(true)
+                    .short("p")
+                    .long("pepper")
+                    .required(true),
+                Arg::with_name("db")
+                    .help("sets the postgres db to connect to (including username,pass)")
+                    .takes_value(true)
+                    .short("d")
+                    .long("db")
+                    .required(true)])
+        .get_matches();
 
     let token_dir = matches.value_of("token-dir").unwrap();
     let pepper = matches.value_of("pepper").unwrap();
@@ -64,12 +63,12 @@ fn main() {
                 middleware! {|req, mut res|
         let form_body = req.form_body().or_else(|err| {
             let (_, body_err) = err;
-            Err(format!("No form body available: {}", body_err).to_string())
+            Err(format!("no form body available: {}", body_err))
         });
 
         let account_info =
             form_body.and_then(|form| {
-                let uname: Result<&str, String> = form.get("username")
+                let uname = form.get("username")
                     .map(|u| u.trim())
                     .and_then(|x| {
                         match x {"" => None, x => Some(x)}
@@ -77,20 +76,18 @@ fn main() {
                     .ok_or({"Username must be set".to_string()});
 
                 let token = form.get("token")
+                    .map(|u| u.trim())
                     .and_then(|x| {
                         match x {"" => None, x => Some(x)}
                     })
-                    .ok_or({
-                    "Token must be set".to_string()
-                });
+                    .ok_or({"Token must be set".to_string()});
 
                 let pass = form.get("password")
+                    .map(|u| u.trim())
                     .and_then(|x| {
                         match x {"" => None, x => Some(x)}
                     })
-                    .ok_or({
-                    "Password must be set".to_string()
-                });
+                    .ok_or({"Password must be set".to_string()});
 
                 uname.and_then(|u| {
                     token.and_then(|t| {
@@ -106,17 +103,15 @@ fn main() {
             // do the password reset
 
             validate_password(pass)?;
-            if !validate_uname_and_token(uname, token) {
-                return Err("invalid username or token".to_string());
-            }
-            set_new_password(uname, pass); // TODO
+            validate_uname_and_token(uname, token)?;
+            set_new_password(uname, pass)?;
             if !delete_token(token).is_ok() {
                 return Err("unable to invalidate your token, please talk to an administrator".to_string());
             }
             Ok("Password changed!".to_string())
         });
 
-        let mut data = HashMap::new();
+        let mut data: HashMap<&str, String> = HashMap::new();
         match output {
             Ok(o) => {
                 data.insert("notice", o);
@@ -134,14 +129,14 @@ fn main() {
     let _ = server.listen("127.0.0.1:6767").unwrap();
 }
 
-fn validate_password(pass: &str) -> Result<(), &str> {
+fn validate_password(pass: &str) -> Result<(), String> {
     if pass.len() < 10 {
-        return Err("password must be at least 10 characters long");
+        return Err("password must be at least 10 characters long".to_string());
     }
     Ok(())
 }
 
-fn validate_uname_and_token(uname: &str, token: &str) -> bool {
+fn validate_uname_and_token(uname: &str, token: &str) -> Result<(), String> {
     // token database is just the filesystem (fuckit shipit).
     // Tokens are stored in the hierarchy "tokens/$token" relative to the program's cwd.
     // The token file contains the string "username".
@@ -149,20 +144,23 @@ fn validate_uname_and_token(uname: &str, token: &str) -> bool {
     // For obvious security reasons, '.' and '/' should be invalid in the token. Just assert it's
     // alphanumeric for simplicity, which solves that.
     if !token.chars().all(|c| c.is_ascii() && c.is_alphanumeric()) {
-        return false;
+        return Err("token must be ascii/alphanumeric".to_string());
     }
 
     let mut f = match File::open(format!("tokens/{}", token).as_str()) {
         Ok(f) => f,
-        Err(_) => return false,
+        Err(_) => return Err("invalid token".to_string()), // TODO log non-ENOENT errs
     };
 
     let mut token_uname = String::new();
     if !f.read_to_string(&mut token_uname).is_ok() {
-        return false;
+        return Err("invalid token + username".to_string());
     }
 
-    token_uname.trim() == uname
+    if token_uname.trim() != uname {
+        return Err("invalid token + username".to_string());
+    }
+    Ok(())
 }
 
 // delete_token should be called after validate_uname_and_token since it assumes the token has been
@@ -171,7 +169,7 @@ fn delete_token(token: &str) -> std::io::Result<()> {
     std::fs::remove_file(format!("tokens/{}", token).as_str())
 }
 
-fn set_new_password(uname: &str, password: &str) -> Result<(), String> {
+fn set_new_password<'a, 'b>(uname: &'a str, password: &'a str) -> Result<(), &'b str> {
     // Here there be postgresql dragons
     Ok(())
 }
@@ -188,7 +186,10 @@ fn hash_password(password: &str, pepper: &str) -> String {
     rng.fill_bytes(&mut salt[..]);
     let mut output = [0u8; 24];
 
-    bcrypt::bcrypt(bcrypt_rounds, &salt[..], format!("{}{}", password, pepper).as_bytes(), &mut output[..]);
+    bcrypt::bcrypt(bcrypt_rounds,
+                   &salt[..],
+                   format!("{}{}", password, pepper).as_bytes(),
+                   &mut output[..]);
 
     output.iter().map(|b| format!("{:X}", b).to_string()).collect::<Vec<String>>().join("")
 }
