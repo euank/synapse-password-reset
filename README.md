@@ -17,7 +17,7 @@ As an admin, you should have access to the filesystem including the token databa
 Enter into the token database directory, and run the following to make a password reset:
 
 ```bash
-token=$(cat /dev/uraneom | tr -dc 'a-zA-Z0-9' | fold -w 64 | head -n 1)
+token=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 64 | head -n 1)
 echo -n "username:matrix.server.name.com" > $token
 ```
 
