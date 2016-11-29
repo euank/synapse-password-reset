@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate log;
 extern crate clap;
 extern crate crypto;
 #[macro_use]
@@ -28,6 +30,55 @@ use crypto::bcrypt;
 
 use postgres::{Connection, TlsMode};
 
+// TODO arg should be db-pool, not db-connect-str
+fn reset_handler(token_dir: &str,
+                 pepper: &str,
+                 db: &str,
+                 req: &mut nickel::Request)
+                 -> Result<(), ResetRequestError> {
+
+    let form = req.form_body().map_err(|_| UserError::EmptyForm())?;
+
+    let uname = form.get("username")
+        .map(|u| u.trim())
+        .and_then(|x| match x {
+            "" => None,
+            x => Some(x),
+        })
+        .ok_or::<UserError>(UserError::EmptyUsername())?;
+
+    let token = form.get("token")
+        .map(|u| u.trim())
+        .and_then(|x| {
+            match x {
+                "" => None,
+                x => Some(x),
+            }
+        })
+        .ok_or::<UserError>(UserError::EmptyToken())?;
+
+    let pass = form.get("password")
+        .map(|u| u.trim())
+        .and_then(|x| {
+            match x {
+                "" => None,
+                x => Some(x),
+            }
+        })
+        .ok_or(UserError::EmptyPassword())?;
+
+    validate_password(pass)?;
+
+    validate_uname_and_token(token_dir, uname, token)?;
+
+    let pw_hash = hash_password(pass, pepper);
+
+    set_new_password(db, uname, pw_hash.as_ref())?;
+
+    delete_token(token_dir, token)?;
+
+    Ok(())
+}
 
 fn main() {
     let matches = App::new("synapse-password-reset")
@@ -68,79 +119,44 @@ fn main() {
         let pepper = matches.value_of("pepper").unwrap();
         let db = matches.value_of("db").unwrap();
 
-        let form_body = req.form_body().or_else(|err| {
-            let (_, body_err) = err;
-            Err(format!("no form body available: {}", body_err))
-        });
-
-        let account_info =
-            form_body.and_then(|form| {
-                let uname = form.get("username")
-                    .map(|u| u.trim())
-                    .and_then(|x| {
-                        match x {"" => None, x => Some(x)}
-                    })
-                    .ok_or({"Username must be set".to_string()});
-
-                let token = form.get("token")
-                    .map(|u| u.trim())
-                    .and_then(|x| {
-                        match x {"" => None, x => Some(x)}
-                    })
-                    .ok_or({"Token must be set".to_string()});
-
-                let pass = form.get("password")
-                    .map(|u| u.trim())
-                    .and_then(|x| {
-                        match x {"" => None, x => Some(x)}
-                    })
-                    .ok_or({"Password must be set".to_string()});
-
-                Ok((uname?, token?, pass?))
-            });
-
-        let output = account_info.and_then(|(uname, token, pass): (&str, &str, &str)| {
-            // now that we've gathered the information, validate that this is a legit request and
-            // do the password reset
-
-            validate_password(pass)?;
-            validate_uname_and_token(token_dir, uname, token)?;
-
-            let pw_hash = hash_password(pass, pepper);
-
-            set_new_password(db, uname, pw_hash.as_ref())?;
-            if !delete_token(token_dir, token).is_ok() {
-                return Err("unable to invalidate your token, please talk to an administrator".to_string());
-            }
-            Ok("Password changed!".to_string())
-        });
+        let response = reset_handler(token_dir, pepper, db, req);
 
         let mut data: HashMap<&str, String> = HashMap::new();
-        match output {
-            Ok(o) => {
-                data.insert("notice", o);
-            }
-            Err(e) => {
+        match response {
+            Ok(_) => {
+                data.insert("notice", "Password successfully changed".to_string());
+            },
+            Err(ResetRequestError::UserError(err)) => {
                 res.set(StatusCode::BadRequest);
-                data.insert("notice", e);
-            }
-        };
+                data.insert("notice", format!("{}", err));
+            },
+            Err(ResetRequestError::InternalError(err)) => {
+                warn!("error handling reuqest: {}", err);
+                res.set(StatusCode::InternalServerError);
+                data.insert("notice", "Internal server error".to_string());
+            },
+        }
 
         return Render::render(res, "public/index.tpl", &data)
+
     });
 
 
     let _ = server.listen("127.0.0.1:6767").unwrap();
 }
 
-fn validate_password(pass: &str) -> Result<(), String> {
+fn validate_password(pass: &str) -> Result<(), UserError> {
     if pass.len() < 10 {
-        return Err("password must be at least 10 characters long".to_string());
+        return Err(UserError::InsecurePassword("password must be at least 10 characters long"
+            .to_string()));
     }
     Ok(())
 }
 
-fn validate_uname_and_token(token_dir: &str, uname: &str, token: &str) -> Result<(), String> {
+fn validate_uname_and_token(token_dir: &str,
+                            uname: &str,
+                            token: &str)
+                            -> Result<(), ResetRequestError> {
     // token database is just the filesystem (fuckit shipit).
     // Tokens are stored in the hierarchy "tokens/$token" relative to the program's cwd.
     // The token file contains the string "username".
@@ -148,36 +164,34 @@ fn validate_uname_and_token(token_dir: &str, uname: &str, token: &str) -> Result
     // For obvious security reasons, '.' and '/' should be invalid in the token. Just assert it's
     // alphanumeric for simplicity, which solves that.
     if !token.chars().all(|c| c.is_ascii() && c.is_alphanumeric()) {
-        return Err("token must be ascii/alphanumeric".to_string());
+        Err(UserError::InvalidToken())?;
     }
 
     let token_path = Path::new(token_dir).join(format!("tokens/{}", token).as_str());
-    let mut f = match File::open(token_path) {
-        Ok(f) => f,
-        Err(_) => return Err("invalid token".to_string()), // TODO log non-ENOENT errs
-    };
+    let mut f = File::open(token_path).map_err(|_| UserError::InvalidTokenOrUsername())?;
+    // TODO log non-ENOENT errs and treat them as server errors
 
     let mut token_uname = String::new();
     if !f.read_to_string(&mut token_uname).is_ok() {
-        return Err("invalid token + username".to_string());
+        Err(UserError::InvalidTokenOrUsername())?
     }
 
     if token_uname.trim() != uname {
-        return Err("invalid token + username".to_string());
+        Err(UserError::InvalidTokenOrUsername())?
     }
     Ok(())
 }
 
 // delete_token should be called after validate_uname_and_token since it assumes the token has been
 // validated
-fn delete_token(token_dir: &str, token: &str) -> std::io::Result<()> {
+fn delete_token(token_dir: &str, token: &str) -> Result<(), InternalError> {
     let token_path = Path::new(token_dir).join(format!("tokens/{}", token).as_str());
-    std::fs::remove_file(token_path)
+    std::fs::remove_file(token_path).map_err(|e| InternalError::TokenDeletionError(e))
 }
 
 
 
-fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(), SetPwError> {
+fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(), InternalError> {
     // TODO, connection pooling a level above this function
     let conn = Connection::connect(db_conn, TlsMode::None)?;
     // Based on the synapse readme here: https://github.com/matrix-org/synapse/blob/f9834a3d1a25d0a715718a53e10752399985e3aa/README.rst#password-reset
@@ -188,9 +202,9 @@ fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(
                  &[&password_hash, &uname])?;
 
     match updates {
-        0 => Err(SetPwError::InvalidUserError()),
+        0 => Err(InternalError::InvalidUserError()),
         1 => Ok(()),
-        _ => Err(SetPwError::UnexpectedError()),
+        _ => Err(InternalError::UnexpectedError()),
     }
 }
 
@@ -215,56 +229,120 @@ fn hash_password(password: &str, pepper: &str) -> String {
 }
 
 #[derive(Debug)]
-enum SetPwError {
-    PgConnectError(postgres::error::ConnectError),
-    PgError(postgres::error::Error),
-    InvalidUserError(),
-    UnexpectedError(),
+enum ResetRequestError {
+    UserError(UserError),
+    InternalError(InternalError),
 }
 
-impl fmt::Display for SetPwError {
+impl From<UserError> for ResetRequestError {
+    fn from(err: UserError) -> ResetRequestError {
+        ResetRequestError::UserError(err)
+    }
+}
+
+impl From<InternalError> for ResetRequestError {
+    fn from(err: InternalError) -> ResetRequestError {
+        ResetRequestError::InternalError(err)
+    }
+}
+
+
+#[derive(Debug)]
+enum UserError {
+    EmptyForm(),
+    EmptyPassword(),
+    EmptyToken(),
+    EmptyUsername(),
+    InvalidToken(),
+    InvalidTokenOrUsername(),
+    InsecurePassword(String),
+}
+
+impl fmt::Display for UserError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SetPwError::PgError(ref err) => write!(f, "postgres error: {}", err),
-            SetPwError::PgConnectError(ref err) => write!(f, "postgres error: {}", err),
-            SetPwError::InvalidUserError() => write!(f, "invalid user error"),
-            SetPwError::UnexpectedError() => write!(f, "unexpected error"),
+            UserError::EmptyForm() => write!(f, "empty form submitted"),
+            UserError::EmptyPassword() => write!(f, "password must be set"),
+            UserError::EmptyToken() => write!(f, "token must be set"),
+            UserError::EmptyUsername() => write!(f, "username must be set"),
+            UserError::InvalidToken() => write!(f, "invalid token: must be alphanumeric"),
+            UserError::InvalidTokenOrUsername() => {
+                write!(f,
+                       "invalid token + username combination; one or both were invalid")
+            }
+            UserError::InsecurePassword(ref s) => write!(f, "bad password choice: {}", s),
         }
     }
 }
 
-impl Error for SetPwError {
+impl Error for UserError {
     fn description(&self) -> &str {
         match *self {
-            SetPwError::PgError(ref err) => err.description(),
-            SetPwError::PgConnectError(ref err) => err.description(),
-            SetPwError::InvalidUserError() => "invalid user",
-            SetPwError::UnexpectedError() => "unexpected error",
+            UserError::EmptyForm() => "empty form",
+            UserError::EmptyPassword() => "empty password",
+            UserError::EmptyToken() => "empty token",
+            UserError::EmptyUsername() => "empty username",
+            UserError::InvalidToken() => "invalid token",
+            UserError::InvalidTokenOrUsername() => "invalid token or username",
+            UserError::InsecurePassword(_) => "insecure password",
+        }
+    }
+}
+
+#[derive(Debug)]
+enum InternalError {
+    PgConnectError(postgres::error::ConnectError),
+    PgError(postgres::error::Error),
+    InvalidUserError(),
+    UnexpectedError(),
+    TokenDeletionError(std::io::Error),
+}
+
+impl fmt::Display for InternalError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            InternalError::PgError(ref err) => write!(f, "postgres error: {}", err),
+            InternalError::PgConnectError(ref err) => write!(f, "postgres error: {}", err),
+            InternalError::InvalidUserError() => write!(f, "invalid user error"),
+            InternalError::UnexpectedError() => write!(f, "unexpected error"),
+            InternalError::TokenDeletionError(ref err) => write!(f, "token io error: {}", err),
+        }
+    }
+}
+
+impl Error for InternalError {
+    fn description(&self) -> &str {
+        match *self {
+            InternalError::PgError(ref err) => err.description(),
+            InternalError::PgConnectError(ref err) => err.description(),
+            InternalError::InvalidUserError() => "invalid user",
+            InternalError::UnexpectedError() => "unexpected error",
+            InternalError::TokenDeletionError(ref err) => err.description(),
         }
     }
 
     fn cause(&self) -> Option<&Error> {
         match *self {
-            SetPwError::PgError(ref err) => Some(err),
+            InternalError::PgError(ref err) => Some(err),
             _ => None,
         }
     }
 }
 
-impl From<postgres::error::ConnectError> for SetPwError {
-    fn from(err: postgres::error::ConnectError) -> SetPwError {
-        SetPwError::PgConnectError(err)
+impl From<postgres::error::ConnectError> for InternalError {
+    fn from(err: postgres::error::ConnectError) -> InternalError {
+        InternalError::PgConnectError(err)
     }
 }
 
-impl From<postgres::error::Error> for SetPwError {
-    fn from(err: postgres::error::Error) -> SetPwError {
-        SetPwError::PgError(err)
+impl From<postgres::error::Error> for InternalError {
+    fn from(err: postgres::error::Error) -> InternalError {
+        InternalError::PgError(err)
     }
 }
 
-impl From<SetPwError> for String {
-    fn from(err: SetPwError) -> String {
+impl From<InternalError> for String {
+    fn from(err: InternalError) -> String {
         err.description().to_string()
     }
 }
