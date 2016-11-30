@@ -1,0 +1,78 @@
+# vim:ft=yaml
+no_tls: True
+
+## Server ##
+tls_certificate_path: /tmp/tls.crt
+tls_private_key_path: /tmp/tls.key
+tls_dh_params_path: /conf/dhparam.pem
+server_name: "synapse_password_reset.local"
+
+pid_file: /var/run/homeserver.pid
+web_client: False
+soft_file_limit: 0
+listeners:
+  - port: 8080
+    tls: false
+    bind_address: ''
+    type: http
+    x_forwarded: true
+    resources:
+      - names: [client, webclient]
+        compress: false
+
+database:
+  name: "psycopg2"
+  args:
+    user: synapse
+    password: synapse
+    database: synapse
+    host: syn-postgres
+    cp_min: 5
+    cp_max: 10
+
+event_cache_size: "10K"
+verbose: 0
+log_file: "/var/log/synapse/homeserver.log"
+log_config: "/base-conf/log.config"
+
+rc_messages_per_second: 0.2
+rc_message_burst_count: 20.0
+federation_rc_window_size: 1000
+federation_rc_sleep_limit: 20
+federation_rc_sleep_delay: 500
+federation_rc_reject_limit: 50
+federation_rc_concurrent: 3
+media_store_path: "/tmp"
+uploads_path: "/tmp"
+max_upload_size: "1M"
+max_image_pixels: "32M"
+dynamic_thumbnails: false
+thumbnail_sizes:
+- width: 32
+  height: 32
+  method: crop
+url_preview_enabled: False
+max_spider_size: "1M"
+enable_registration: False
+registration_shared_secret: "registration-secret"
+user_creation_max_duration: 1209600000
+bcrypt_rounds: 12
+allow_guest_access: False
+trusted_third_party_id_servers: []
+enable_metrics: False
+report_stats: False
+room_invite_state_types:
+    - "m.room.join_rules"
+    - "m.room.canonical_alias"
+    - "m.room.avatar"
+    - "m.room.name"
+macaroon_secret_key: "secret"
+expire_access_token: False
+signing_key_path: "/tmp/signing.key"
+old_signing_keys: {}
+key_refresh_interval: "300s"
+perspectives:
+  servers: {}
+password_config:
+  enabled: true
+  pepper: "PEPPER"
