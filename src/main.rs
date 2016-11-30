@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate log;
+#[macro_use]
 extern crate clap;
 extern crate crypto;
 #[macro_use]
@@ -34,6 +35,7 @@ use postgres::{Connection, TlsMode};
 fn reset_handler(token_dir: &str,
                  pepper: &str,
                  db: &str,
+                 bcrypt_rounds: u32,
                  req: &mut nickel::Request)
                  -> Result<(), ResetRequestError> {
 
@@ -71,7 +73,7 @@ fn reset_handler(token_dir: &str,
 
     validate_uname_and_token(token_dir, uname, token)?;
 
-    let pw_hash = hash_password(pass, pepper);
+    let pw_hash = hash_password(pass, pepper, bcrypt_rounds);
 
     set_new_password(db, uname, pw_hash.as_ref())?;
 
@@ -82,8 +84,8 @@ fn reset_handler(token_dir: &str,
 
 fn main() {
     let matches = App::new("synapse-password-reset")
-        .version("v0.0.1")
-        .author("Euan Kemp <euank@euank.com>")
+        .version(crate_version!())
+        .author(crate_authors!())
         .args(&[Arg::with_name("token-dir")
                     .help("sets the database directory to use")
                     .takes_value(true)
@@ -102,7 +104,13 @@ fn main() {
                     .takes_value(true)
                     .short("d")
                     .long("db")
-                    .required(true)])
+                    .required(true),
+                Arg::with_name("bcrypt-rounds")
+                    .help("sets number of bcrypt rounds (should match your synapse config value, default 12)")
+                    .takes_value(true)
+                    .short("b")
+                    .long("bcrypt-rounds")
+                    .required(false)])
         .get_matches();
 
     let mut server = Nickel::new();
@@ -119,8 +127,9 @@ fn main() {
         let token_dir = matches.value_of("token-dir").unwrap();
         let pepper = matches.value_of("pepper").unwrap();
         let db = matches.value_of("db").unwrap();
+        let bcrypt_rounds = value_t!(matches, "bcrypt-rounds", u32).unwrap_or(12);
 
-        let response = reset_handler(token_dir, pepper, db, req);
+        let response = reset_handler(token_dir, pepper, db, bcrypt_rounds, req);
 
         let mut data: HashMap<&str, String> = HashMap::new();
         match response {
@@ -209,24 +218,28 @@ fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(
     }
 }
 
-fn hash_password(password: &str, pepper: &str) -> String {
+fn hash_password(password: &str, pepper: &str, rounds: u32) -> String {
     // This function closely mimics
     // https://github.com/matrix-org/synapse/blob/9bba6ebaa903a81cd94fada114aa71e20b685adb/scripts/hash_password
-
-    // Match the default from synapse arbitrarily
-    let bcrypt_rounds = 12;
-
     let mut salt = [0u8; 16];
     let mut rng = OsRng::new().unwrap();
     rng.fill_bytes(&mut salt[..]);
     let mut output = [0u8; 24];
 
-    bcrypt::bcrypt(bcrypt_rounds,
+    // ... See https://github.com/pyca/bcrypt/blob/fcebaa0db74dc822877128e57a79dcfda2a2dc4f/src/bcrypt/__init__.py#L66-L72
+    // and https://github.com/DaGenix/rust-crypto/blob/cc1a5fde1ce957bd1a8a2e30169443cdb4780111/src/bcrypt.rs#L26
+    let peppered_password = format!("{}{}", password, pepper);
+    let bcryptable_password = &peppered_password.as_bytes()[0..72];
+
+    bcrypt::bcrypt(rounds,
                    &salt[..],
-                   format!("{}{}", password, pepper).as_bytes(),
+                   bcryptable_password,
                    &mut output[..]);
 
-    output.iter().map(|b| format!("{:X}", b).to_string()).collect::<Vec<String>>().join("")
+    // rust-crypto doesn't do anything nice for us so we have to format our own hash output
+    let salt_hex = salt.iter().map(|b| format!("{:X}", b)).collect::<Vec<String>>().join("");
+    let out_hex = output.iter().map(|b| format!("{:X}", b)).collect::<Vec<String>>().join("");
+    format!("$2b${}${}$", salt_hex, out_hex)
 }
 
 #[derive(Debug)]
