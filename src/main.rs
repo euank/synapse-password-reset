@@ -97,7 +97,7 @@ fn main() {
                     .long("pepper")
                     .required(true),
                 Arg::with_name("db")
-                    .help("sets the postgres db to connect to (including username,pass)")
+                    .help("sets the postgres db to connect to (e.g. 'postgres://user:pass@host:port/database')")
                     .takes_value(true)
                     .short("d")
                     .long("db")
