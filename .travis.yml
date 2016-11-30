@@ -1,4 +1,18 @@
+sudo: required
 language: rust
 rust:
   - stable
   - nightly
+
+services:
+  - docker
+
+before_install:
+  - ./scripts/setup_test_env.sh
+
+script:
+  - cargo build
+  - mkdir tokens
+  - cargo run -- --token-dir ./tokens --pepper=PEPPER --db "postgres://synapse:synapse@localhost:5433/synapse" &
+  - sleep 1
+  - cargo test
