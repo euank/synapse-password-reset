@@ -360,3 +360,16 @@ impl From<InternalError> for String {
         err.description().to_string()
     }
 }
+
+
+#[cfg(test)]
+mod test {
+    use ::std::iter;
+
+    #[test]
+    fn hash_long_password_test() {
+        let really_long_password = iter::repeat("x").take(100).collect::<String>();
+        let _ = ::hash_password(really_long_password.as_ref(), "some pepper", 2);
+        // not having paniced is a pass
+    }
+}
