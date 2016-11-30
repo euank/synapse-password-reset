@@ -47,7 +47,7 @@ fn reset_handler(token_dir: &str,
             "" => None,
             x => Some(x),
         })
-        .ok_or::<UserError>(UserError::EmptyUsername)?;
+        .ok_or(UserError::EmptyUsername)?;
 
     let token = form.get("token")
         .map(|u| u.trim())
@@ -57,7 +57,7 @@ fn reset_handler(token_dir: &str,
                 x => Some(x),
             }
         })
-        .ok_or::<UserError>(UserError::EmptyToken)?;
+        .ok_or(UserError::EmptyToken)?;
 
     let pass = form.get("password")
         .map(|u| u.trim())
