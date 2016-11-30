@@ -12,3 +12,7 @@ rust-crypto = "*"
 rand = "*"
 postgres = "*"
 log = "*"
+
+[dev-dependencies]
+hyper = "*"
+url = "*"
