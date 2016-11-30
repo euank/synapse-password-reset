@@ -19,4 +19,4 @@ script:
   - mkdir tokens
   - cargo run -- --token-dir ./tokens --pepper=PEPPER --db "postgres://synapse:synapse@localhost:5433/synapse" &
   - sleep 1
-  - cargo test
+  - cargo test --features=integ-tests
