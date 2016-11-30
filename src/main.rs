@@ -37,7 +37,7 @@ fn reset_handler(token_dir: &str,
                  req: &mut nickel::Request)
                  -> Result<(), ResetRequestError> {
 
-    let form = req.form_body().map_err(|_| UserError::EmptyForm())?;
+    let form = req.form_body().map_err(|_| UserError::EmptyForm)?;
 
     let uname = form.get("username")
         .map(|u| u.trim())
@@ -45,7 +45,7 @@ fn reset_handler(token_dir: &str,
             "" => None,
             x => Some(x),
         })
-        .ok_or::<UserError>(UserError::EmptyUsername())?;
+        .ok_or::<UserError>(UserError::EmptyUsername)?;
 
     let token = form.get("token")
         .map(|u| u.trim())
@@ -55,7 +55,7 @@ fn reset_handler(token_dir: &str,
                 x => Some(x),
             }
         })
-        .ok_or::<UserError>(UserError::EmptyToken())?;
+        .ok_or::<UserError>(UserError::EmptyToken)?;
 
     let pass = form.get("password")
         .map(|u| u.trim())
@@ -65,7 +65,7 @@ fn reset_handler(token_dir: &str,
                 x => Some(x),
             }
         })
-        .ok_or(UserError::EmptyPassword())?;
+        .ok_or(UserError::EmptyPassword)?;
 
     validate_password(pass)?;
 
@@ -97,7 +97,8 @@ fn main() {
                     .long("pepper")
                     .required(true),
                 Arg::with_name("db")
-                    .help("sets the postgres db to connect to (e.g. 'postgres://user:pass@host:port/database')")
+                    .help("sets the postgres db to connect to (e.g. \
+                           'postgres://user:pass@host:port/database')")
                     .takes_value(true)
                     .short("d")
                     .long("db")
@@ -164,20 +165,20 @@ fn validate_uname_and_token(token_dir: &str,
     // For obvious security reasons, '.' and '/' should be invalid in the token. Just assert it's
     // alphanumeric for simplicity, which solves that.
     if !token.chars().all(|c| c.is_ascii() && c.is_alphanumeric()) {
-        Err(UserError::InvalidToken())?;
+        Err(UserError::InvalidToken)?;
     }
 
     let token_path = Path::new(token_dir).join(format!("tokens/{}", token).as_str());
-    let mut f = File::open(token_path).map_err(|_| UserError::InvalidTokenOrUsername())?;
+    let mut f = File::open(token_path).map_err(|_| UserError::InvalidTokenOrUsername)?;
     // TODO log non-ENOENT errs and treat them as server errors
 
     let mut token_uname = String::new();
     if !f.read_to_string(&mut token_uname).is_ok() {
-        Err(UserError::InvalidTokenOrUsername())?
+        Err(UserError::InvalidTokenOrUsername)?
     }
 
     if token_uname.trim() != uname {
-        Err(UserError::InvalidTokenOrUsername())?
+        Err(UserError::InvalidTokenOrUsername)?
     }
     Ok(())
 }
@@ -202,9 +203,9 @@ fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(
                  &[&password_hash, &uname])?;
 
     match updates {
-        0 => Err(InternalError::InvalidUserError()),
+        0 => Err(InternalError::InvalidUserError),
         1 => Ok(()),
-        _ => Err(InternalError::UnexpectedError()),
+        _ => Err(InternalError::UnexpectedError),
     }
 }
 
@@ -249,24 +250,24 @@ impl From<InternalError> for ResetRequestError {
 
 #[derive(Debug)]
 enum UserError {
-    EmptyForm(),
-    EmptyPassword(),
-    EmptyToken(),
-    EmptyUsername(),
-    InvalidToken(),
-    InvalidTokenOrUsername(),
+    EmptyForm,
+    EmptyPassword,
+    EmptyToken,
+    EmptyUsername,
+    InvalidToken,
+    InvalidTokenOrUsername,
     InsecurePassword(String),
 }
 
 impl fmt::Display for UserError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            UserError::EmptyForm() => write!(f, "empty form submitted"),
-            UserError::EmptyPassword() => write!(f, "password must be set"),
-            UserError::EmptyToken() => write!(f, "token must be set"),
-            UserError::EmptyUsername() => write!(f, "username must be set"),
-            UserError::InvalidToken() => write!(f, "invalid token: must be alphanumeric"),
-            UserError::InvalidTokenOrUsername() => {
+            UserError::EmptyForm => write!(f, "empty form submitted"),
+            UserError::EmptyPassword => write!(f, "password must be set"),
+            UserError::EmptyToken => write!(f, "token must be set"),
+            UserError::EmptyUsername => write!(f, "username must be set"),
+            UserError::InvalidToken => write!(f, "invalid token: must be alphanumeric"),
+            UserError::InvalidTokenOrUsername => {
                 write!(f,
                        "invalid token + username combination; one or both were invalid")
             }
@@ -278,12 +279,12 @@ impl fmt::Display for UserError {
 impl Error for UserError {
     fn description(&self) -> &str {
         match *self {
-            UserError::EmptyForm() => "empty form",
-            UserError::EmptyPassword() => "empty password",
-            UserError::EmptyToken() => "empty token",
-            UserError::EmptyUsername() => "empty username",
-            UserError::InvalidToken() => "invalid token",
-            UserError::InvalidTokenOrUsername() => "invalid token or username",
+            UserError::EmptyForm => "empty form",
+            UserError::EmptyPassword => "empty password",
+            UserError::EmptyToken => "empty token",
+            UserError::EmptyUsername => "empty username",
+            UserError::InvalidToken => "invalid token",
+            UserError::InvalidTokenOrUsername => "invalid token or username",
             UserError::InsecurePassword(_) => "insecure password",
         }
     }
@@ -293,8 +294,8 @@ impl Error for UserError {
 enum InternalError {
     PgConnectError(postgres::error::ConnectError),
     PgError(postgres::error::Error),
-    InvalidUserError(),
-    UnexpectedError(),
+    InvalidUserError,
+    UnexpectedError,
     TokenDeletionError(std::io::Error),
 }
 
@@ -303,8 +304,8 @@ impl fmt::Display for InternalError {
         match *self {
             InternalError::PgError(ref err) => write!(f, "postgres error: {}", err),
             InternalError::PgConnectError(ref err) => write!(f, "postgres error: {}", err),
-            InternalError::InvalidUserError() => write!(f, "invalid user error"),
-            InternalError::UnexpectedError() => write!(f, "unexpected error"),
+            InternalError::InvalidUserError => write!(f, "invalid user error"),
+            InternalError::UnexpectedError => write!(f, "unexpected error"),
             InternalError::TokenDeletionError(ref err) => write!(f, "token io error: {}", err),
         }
     }
@@ -315,8 +316,8 @@ impl Error for InternalError {
         match *self {
             InternalError::PgError(ref err) => err.description(),
             InternalError::PgConnectError(ref err) => err.description(),
-            InternalError::InvalidUserError() => "invalid user",
-            InternalError::UnexpectedError() => "unexpected error",
+            InternalError::InvalidUserError => "invalid user",
+            InternalError::UnexpectedError => "unexpected error",
             InternalError::TokenDeletionError(ref err) => err.description(),
         }
     }
