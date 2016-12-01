@@ -48,7 +48,8 @@ done
 # Run backregister
 
 if [[ "$(docker ps --filter name=syn-br -q)" == "" ]]; then
-docker run --name=syn-br \
+  docker rm -f syn-br || true &>/dev/null
+  docker run --name=syn-br \
   -e SYNAPSE_SERVER=http://syn-synapse:8080 \
   -e SYNAPSE_SECRET=secret \
   -p 8082:8000 \
