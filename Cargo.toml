@@ -8,15 +8,19 @@ nickel = "*"
 nickel_mustache = { git = "https://github.com/euank/nickel-mustache" }
 rustc-serialize = "*"
 clap = "*"
-rust-crypto = "*"
-rand = "*"
+
+# until https://github.com/Keats/rust-bcrypt/pull/4 is released
+bcrypt = { git = "https://github.com/euank/rust-bcrypt", branch = "the-longest-of-passwords" }
+
 postgres = "*"
 log = "*"
 env_logger = "*"
 
+
 [dev-dependencies]
 hyper = "*"
 url = "*"
+rand = "*"
 
 [features]
 default = []

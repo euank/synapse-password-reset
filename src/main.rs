@@ -3,14 +3,12 @@ extern crate log;
 extern crate env_logger;
 #[macro_use]
 extern crate clap;
-extern crate crypto;
 #[macro_use]
 extern crate nickel;
 extern crate nickel_mustache;
 extern crate rustc_serialize;
-extern crate rand;
 extern crate postgres;
-
+extern crate bcrypt;
 
 use std::path::Path;
 use std::ascii::AsciiExt;
@@ -19,9 +17,6 @@ use std::error::Error;
 use std::fs::File;
 use std::fmt;
 use std::io::prelude::*;
-use rand::os::OsRng;
-use rand::Rng;
-use log::LogLevel;
 
 use nickel::status::StatusCode;
 use nickel::{Nickel, HttpRouter, FormBody};
@@ -29,9 +24,8 @@ use nickel_mustache::Render;
 
 use clap::{App, Arg};
 
-use crypto::bcrypt;
-
 use postgres::{Connection, TlsMode};
+
 
 // TODO arg should be db-pool, not db-connect-str
 fn reset_handler(token_dir: &str,
@@ -114,6 +108,13 @@ fn main() {
                     .takes_value(true)
                     .short("b")
                     .long("bcrypt-rounds")
+                    .validator(|v| -> Result<(), String> {
+                        let rounds: u32 = v.parse().map_err(|_| "bcrypt-rounds must be an int".to_string())?;
+                        match rounds {
+                            5...31 => Ok(()),
+                            _ => Err("rounds must be between 5 and 31".to_string()),
+                        }
+                    })
                     .required(false)])
         .get_matches();
 
@@ -212,6 +213,7 @@ fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(
     // UPDATE users SET password_hash='$2a$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' WHERE
     // name='@test:test.com';
     // is the query we want
+    info!("updating password for {}", uname);
     let updates = conn.execute("UPDATE users SET password_hash = $1 WHERE name = $2",
                  &[&password_hash, &uname])?;
 
@@ -225,25 +227,24 @@ fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(
 fn hash_password(password: &str, pepper: &str, rounds: u32) -> String {
     // This function closely mimics
     // https://github.com/matrix-org/synapse/blob/9bba6ebaa903a81cd94fada114aa71e20b685adb/scripts/hash_password
-    let mut salt = [0u8; 16];
-    let mut rng = OsRng::new().unwrap();
-    rng.fill_bytes(&mut salt[..]);
-    let mut output = [0u8; 24];
-
-    // ... See https://github.com/pyca/bcrypt/blob/fcebaa0db74dc822877128e57a79dcfda2a2dc4f/src/bcrypt/__init__.py#L66-L72
-    // and https://github.com/DaGenix/rust-crypto/blob/cc1a5fde1ce957bd1a8a2e30169443cdb4780111/src/bcrypt.rs#L26
     let peppered_password = format!("{}{}", password, pepper);
-    let bcryptable_password = &peppered_password.as_bytes()[0..72];
 
-    bcrypt::bcrypt(rounds,
-                   &salt[..],
-                   bcryptable_password,
-                   &mut output[..]);
-
-    // rust-crypto doesn't do anything nice for us so we have to format our own hash output
-    let salt_hex = salt.iter().map(|b| format!("{:X}", b)).collect::<Vec<String>>().join("");
-    let out_hex = output.iter().map(|b| format!("{:X}", b)).collect::<Vec<String>>().join("");
-    format!("$2b${}${}$", salt_hex, out_hex)
+    let result = bcrypt::hash(peppered_password.as_ref(), rounds);
+    // only possible error is `bcrypt-rounds` being too large/small, which we already validated.
+    // TODO, this can be improved by defining a type in the bcrypt crate
+    let crypt_hash = result.unwrap();
+    // Soooo, this is hacky, but python *only* supports $2a$ and $2b$, while this crate only
+    // supports $2y$.
+    // The differences are tiny, so it turns out that just pretending this is $2a$ works at least.
+    // Some side effects may occur, please consult your local crypto expert before use.
+    crypt_hash.chars().enumerate().map(|(i, c)| {
+        if i == 2 { 
+            // Index of 'y' in '$2y'
+            'a'
+        } else {
+            c
+        }
+    }).collect()
 }
 
 #[derive(Debug)]
@@ -362,18 +363,5 @@ impl From<postgres::error::Error> for InternalError {
 impl From<InternalError> for String {
     fn from(err: InternalError) -> String {
         err.description().to_string()
-    }
-}
-
-
-#[cfg(test)]
-mod test {
-    use ::std::iter;
-
-    #[test]
-    fn hash_long_password_test() {
-        let really_long_password = iter::repeat("x").take(100).collect::<String>();
-        let _ = ::hash_password(really_long_password.as_ref(), "some pepper", 2);
-        // not having paniced is a pass
     }
 }
