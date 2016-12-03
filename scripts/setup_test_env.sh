@@ -11,7 +11,7 @@ POSTGRES_DIGEST=sha256:3aa888ee9bf0f0e408e23d05bfe1243cd61d3c39a44eb439ba228a4b3
 SYNAPSE_DIGEST=sha256:0fc235a8dcaf7b777e4e92eb4ea66397aa0241ab89a2f34900c5980260cc3327
 
 # skopeo inspect docker://euank/synapse-backregister:latest | jq '.Digest' -r
-BACKREGISTER_DIGEST=sha256:73df961d62aed083e9787ed11221f46c09362bf6f7046d04d76b3f179a5bfd38
+BACKREGISTER_DIGEST=sha256:9c77fc658ffc3220491c68d229b0f5e860d7d45d5cf10a479a0c3aa93404e173
 
 pg_image="postgres@${POSTGRES_DIGEST}"
 syn_image="euank/synapse@${SYNAPSE_DIGEST}"
@@ -38,7 +38,12 @@ fi
 
 if [[ "$(docker ps --filter name=syn-synapse -q)" == "" ]]; then
   docker rm -f syn-synapse || true &>/dev/null
-  docker run -p 8080:8080 --net=synapse -d -v "${SOURCE}/test_synapse_config/":/conf/ --name=syn-synapse $syn_image /conf/entrypoint.sh
+  docker run -p 8080:8080 \
+    --net=synapse -d \
+    -v "${SOURCE}/test_synapse_config/":/conf/ \
+    -v "${SOURCE}/test_synapse_config/logconfig.yaml":/base-conf/log.config \
+    --name=syn-synapse \
+    $syn_image /conf/entrypoint.sh
 fi
 
 while ! curl -s http://localhost:8080; do
@@ -51,7 +56,7 @@ if [[ "$(docker ps --filter name=syn-br -q)" == "" ]]; then
   docker rm -f syn-br || true &>/dev/null
   docker run --name=syn-br \
   -e SYNAPSE_SERVER=http://syn-synapse:8080 \
-  -e SYNAPSE_SECRET=secret \
+  -e SYNAPSE_SECRET=registration-secret \
   -p 8082:8000 \
   --net=synapse -d \
   $br_image
