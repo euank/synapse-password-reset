@@ -12,6 +12,7 @@ rust-crypto = "*"
 rand = "*"
 postgres = "*"
 log = "*"
+env_logger = "*"
 
 [dev-dependencies]
 hyper = "*"
