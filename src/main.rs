@@ -33,6 +33,7 @@ use crypto::bcrypt;
 
 use postgres::{Connection, TlsMode};
 
+
 // TODO arg should be db-pool, not db-connect-str
 fn reset_handler(token_dir: &str,
                  pepper: &str,
@@ -212,6 +213,7 @@ fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(
     // UPDATE users SET password_hash='$2a$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' WHERE
     // name='@test:test.com';
     // is the query we want
+    info!("updating password for {}", uname);
     let updates = conn.execute("UPDATE users SET password_hash = $1 WHERE name = $2",
                  &[&password_hash, &uname])?;
 
@@ -228,22 +230,104 @@ fn hash_password(password: &str, pepper: &str, rounds: u32) -> String {
     let mut salt = [0u8; 16];
     let mut rng = OsRng::new().unwrap();
     rng.fill_bytes(&mut salt[..]);
-    let mut output = [0u8; 24];
 
     // ... See https://github.com/pyca/bcrypt/blob/fcebaa0db74dc822877128e57a79dcfda2a2dc4f/src/bcrypt/__init__.py#L66-L72
     // and https://github.com/DaGenix/rust-crypto/blob/cc1a5fde1ce957bd1a8a2e30169443cdb4780111/src/bcrypt.rs#L26
     let peppered_password = format!("{}{}", password, pepper);
-    let bcryptable_password = &peppered_password.as_bytes()[0..72];
+    let bcryptable_password: Vec<u8> = peppered_password.as_bytes().chunks(72).next().unwrap().to_vec();
+
+    info!("hashing with {}, {}", rounds, String::from_utf8(bcryptable_password.clone()).unwrap());
+
+    _hash_password(&bcryptable_password, rounds, salt)
+}
+
+fn _hash_password(pass: &[u8], rounds: u32, salt: [u8; 16]) -> String {
+    let mut output = [0u8; 24];
 
     bcrypt::bcrypt(rounds,
                    &salt[..],
-                   bcryptable_password,
+                   &pass,
                    &mut output[..]);
 
     // rust-crypto doesn't do anything nice for us so we have to format our own hash output
-    let salt_hex = salt.iter().map(|b| format!("{:X}", b)).collect::<Vec<String>>().join("");
-    let out_hex = output.iter().map(|b| format!("{:X}", b)).collect::<Vec<String>>().join("");
-    format!("$2b${}${}$", salt_hex, out_hex)
+    // crypt requires radix-64 encoding. https://en.wikipedia.org/wiki/Base64#Radix-64_applications_not_compatible_with_Base64
+    // it's kinda like base64 but not.
+    let salt_r64 = salt[..].to_radix64();
+    let out_r64 = output[..23].to_radix64();
+
+    format!("$2a${:02}${}{}", rounds, salt_r64, out_r64)
+}
+
+// The below is taken from
+// https://github.com/rust-lang-nursery/rustc-serialize/blob/master/src/base64.rs, Copyright
+// 2012-2014 The Rust Project Developers, used and modified under the MIT license.
+// It has been modified for radix64 as opposed to base64.
+trait ToRadix64 {
+    fn to_radix64(&self) -> String;
+}
+
+impl ToRadix64 for [u8] {
+    fn to_radix64(&self) -> String {
+        let bytes =   b"./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+        let len = self.len();
+
+        let mut prealloc_len = (len + 2) / 3 * 4;
+        let mut out_bytes = vec![b'='; prealloc_len];
+        // Use iterators to reduce branching
+        {
+            let mut cur_length = 0;
+            let mod_len = len % 3;
+
+            let mut s_in = self[..len - mod_len].iter().map(|&x| x as u32);
+            let mut s_out = out_bytes.iter_mut();
+
+            // Convenient shorthand
+            let enc = |val| bytes[val as usize];
+            let mut write = |val| *s_out.next().unwrap() = val;
+
+            // Iterate though blocks of 4
+            while let (Some(first), Some(second), Some(third)) =
+                        (s_in.next(), s_in.next(), s_in.next()) {
+
+                let n = first << 16 | second << 8 | third;
+
+                // This 24-bit number gets separated into four 6-bit numbers.
+                write(enc((n >> 18) & 63));
+                write(enc((n >> 12) & 63));
+                write(enc((n >> 6 ) & 63));
+                write(enc((n >> 0 ) & 63));
+
+                cur_length += 4;
+            }
+
+            // Heh, would be cool if we knew this was exhaustive
+            // (the dream of bounded integer types)
+            match mod_len {
+                0 => (),
+                1 => {
+                    let n = (self[len-1] as u32) << 16;
+                    write(enc((n >> 18) & 63));
+                    write(enc((n >> 12) & 63));
+                }
+                2 => {
+                    let n = (self[len-2] as u32) << 16 |
+                            (self[len-1] as u32) << 8;
+                    write(enc((n >> 18) & 63));
+                    write(enc((n >> 12) & 63));
+                    write(enc((n >> 6 ) & 63));
+                }
+                _ => panic!("Algebra is broken, please alert the math police")
+            }
+        }
+
+        while let Some(&b'=') = out_bytes.last() {
+            out_bytes.pop();
+        }
+
+        unsafe { String::from_utf8_unchecked(out_bytes) }
+
+    }
 }
 
 #[derive(Debug)]
@@ -375,5 +459,19 @@ mod test {
         let really_long_password = iter::repeat("x").take(100).collect::<String>();
         let _ = ::hash_password(really_long_password.as_ref(), "some pepper", 2);
         // not having paniced is a pass
+    }
+
+    #[test]
+    fn hash_simple_password() {
+        let password = b"foo";
+        let rounds = 5;
+        let salt = [0u8; 16];
+        let hash = ::_hash_password(&password[..], rounds, salt);
+
+
+        // python code:
+        // >>> bcrypt.hashpw(b"foo", b"$2a$05$...............................")
+		// b'$2a$05$......................DG.Zy2Uw1KmNiZuz08cvRocRh.KsW6u'<Paste>
+        assert_eq!("$2a$05$......................DG.Zy2Uw1KmNiZuz08cvRocRh.KsW6u", hash);
     }
 }
