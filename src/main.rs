@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate log;
+extern crate env_logger;
 #[macro_use]
 extern crate clap;
 extern crate crypto;
@@ -20,6 +21,7 @@ use std::fmt;
 use std::io::prelude::*;
 use rand::os::OsRng;
 use rand::Rng;
+use log::LogLevel;
 
 use nickel::status::StatusCode;
 use nickel::{Nickel, HttpRouter, FormBody};
@@ -83,6 +85,8 @@ fn reset_handler(token_dir: &str,
 }
 
 fn main() {
+    env_logger::init().unwrap();
+
     let matches = App::new("synapse-password-reset")
         .version(crate_version!())
         .author(crate_authors!())
@@ -141,7 +145,7 @@ fn main() {
                 data.insert("notice", format!("{}", err));
             },
             Err(ResetRequestError::InternalError(err)) => {
-                warn!("error handling reuqest: {}", err);
+                warn!("error handling request: {}", err);
                 res.set(StatusCode::InternalServerError);
                 data.insert("notice", "Internal server error".to_string());
             },
