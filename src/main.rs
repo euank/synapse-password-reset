@@ -172,7 +172,7 @@ fn validate_uname_and_token(token_dir: &str,
                             token: &str)
                             -> Result<(), ResetRequestError> {
     // token database is just the filesystem (fuckit shipit).
-    // Tokens are stored in the hierarchy "tokens/$token" relative to the program's cwd.
+    // Tokens are stored in the hierarchy "$token_dir/$token".
     // The token file contains the string "username".
     //
     // For obvious security reasons, '.' and '/' should be invalid in the token. Just assert it's
@@ -181,7 +181,7 @@ fn validate_uname_and_token(token_dir: &str,
         Err(UserError::InvalidToken)?;
     }
 
-    let token_path = Path::new(token_dir).join(format!("tokens/{}", token).as_str());
+    let token_path = Path::new(token_dir).join(token);
     let mut f = File::open(token_path).map_err(|_| UserError::InvalidTokenOrUsername)?;
     // TODO log non-ENOENT errs and treat them as server errors
 
@@ -199,7 +199,7 @@ fn validate_uname_and_token(token_dir: &str,
 // delete_token should be called after validate_uname_and_token since it assumes the token has been
 // validated
 fn delete_token(token_dir: &str, token: &str) -> Result<(), InternalError> {
-    let token_path = Path::new(token_dir).join(format!("tokens/{}", token).as_str());
+    let token_path = Path::new(token_dir).join(format!("{}", token).as_str());
     std::fs::remove_file(token_path).map_err(|e| InternalError::TokenDeletionError(e))
 }
 
