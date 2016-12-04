@@ -8,7 +8,7 @@ mod integ_tests {
     use self::url::form_urlencoded;
     use self::hyper::Client;
     use self::rand::{Rng, OsRng};
-    use std::io::{Read,Write};
+    use std::io::{Read, Write};
     use std::fs::File;
     use std::collections::BTreeMap;
     use self::rustc_serialize::json::{self, Json, ToJson};
@@ -72,10 +72,11 @@ mod integ_tests {
         let resp = c.post("http://localhost:8080/_matrix/client/r0/login")
             .header(hyper::header::ContentType::json())
             .body(format!("{}", login.to_json()).as_bytes())
-            .send().unwrap();
+            .send()
+            .unwrap();
 
         match resp.status {
-            hyper::status::StatusCode::Ok=> Ok(()),
+            hyper::status::StatusCode::Ok => Ok(()),
             _ => Err(resp.status),
         }
     }
@@ -122,6 +123,7 @@ mod integ_tests {
                                          user: username1.clone(),
                                          password: new_pass.clone(),
                                      });
-        assert!(result.is_ok(), format!("did not expect err, but was: {}", result.err().unwrap()));
+        assert!(result.is_ok(),
+                format!("did not expect err, but was: {}", result.err().unwrap()));
     }
 }

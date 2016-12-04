@@ -104,17 +104,19 @@ fn main() {
                     .long("db")
                     .required(true),
                 Arg::with_name("bcrypt-rounds")
-                    .help("sets number of bcrypt rounds (should match your synapse config value, default 12)")
+                    .help("sets number of bcrypt rounds (should match your synapse config \
+                           value, default 12)")
                     .takes_value(true)
                     .short("b")
                     .long("bcrypt-rounds")
                     .validator(|v| -> Result<(), String> {
-                        let rounds: u32 = v.parse().map_err(|_| "bcrypt-rounds must be an int".to_string())?;
-                        match rounds {
-                            5...31 => Ok(()),
-                            _ => Err("rounds must be between 5 and 31".to_string()),
-                        }
-                    })
+                let rounds: u32 = v.parse()
+                    .map_err(|_| "bcrypt-rounds must be an int".to_string())?;
+                match rounds {
+                    5...31 => Ok(()),
+                    _ => Err("rounds must be between 5 and 31".to_string()),
+                }
+            })
                     .required(false)])
         .get_matches();
 
@@ -237,14 +239,17 @@ fn hash_password(password: &str, pepper: &str, rounds: u32) -> String {
     // supports $2y$.
     // The differences are tiny, so it turns out that just pretending this is $2a$ works at least.
     // Some side effects may occur, please consult your local crypto expert before use.
-    crypt_hash.chars().enumerate().map(|(i, c)| {
-        if i == 2 { 
-            // Index of 'y' in '$2y'
-            'a'
-        } else {
-            c
-        }
-    }).collect()
+    crypt_hash.chars()
+        .enumerate()
+        .map(|(i, c)| {
+            if i == 2 {
+                // Index of 'y' in '$2y'
+                'a'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug)]
