@@ -8,10 +8,7 @@ nickel = "*"
 nickel_mustache = { git = "https://github.com/euank/nickel-mustache" }
 rustc-serialize = "*"
 clap = "*"
-
-# until https://github.com/Keats/rust-bcrypt/pull/4 is released
-bcrypt = { git = "https://github.com/euank/rust-bcrypt", branch = "the-longest-of-passwords" }
-
+bcrypt = ">= 0.1.3"
 postgres = "*"
 log = "*"
 env_logger = "*"
