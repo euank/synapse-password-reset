@@ -18,7 +18,7 @@ Enter into the token database directory, and run the following to make a passwor
 
 ```bash
 token=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 64 | head -n 1)
-echo -n "username:matrix.server.name.com" > $token
+echo -n "@username:matrix.server.name.com" > $token
 ```
 
 Provide the token to the user who forgot their password. Carefully validate it is actually them. gpg encrypt it for them. Live your dreams of the government trying to intercept your communication.
