@@ -27,7 +27,6 @@ Eventually this might be less manual!
 
 ### TODO
 
-* Update the user weberface to allow '#token' links which auto-fill the token box (js)
 * Web interface for admin (pls u2f)
 * A better web interface for users.
 * I dunno.
