@@ -7,6 +7,7 @@ RUN useradd -d /app app
 WORKDIR /app
 
 COPY ./target/release/synapse-password-reset /app/synapse-password-reset
+COPY ./public /app/public/
 RUN chown app:app /app/tokens /app
 
 USER app
