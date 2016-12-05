@@ -175,7 +175,7 @@ fn main() {
     });
 
 
-    let _ = server.listen("127.0.0.1:6767").unwrap();
+    let _ = server.listen("0.0.0.0:6767").unwrap();
 }
 
 fn validate_password(pass: &str) -> Result<(), UserError> {
