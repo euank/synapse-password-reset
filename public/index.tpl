@@ -14,7 +14,7 @@
       Forgot password token: <br>
       <input id="token" type="text" name="token" /><br>
       New Password: <br>
-      <input id="password" type="text" name="password" /><br>
+      <input id="password" type="password" name="password" /><br>
       <input type="submit" name="submit" />
     </form>
     <script>
