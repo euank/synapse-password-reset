@@ -1,0 +1,12 @@
+FROM debian:jessie
+
+RUN mkdir -p /app/tokens
+RUN useradd -d /app app
+WORKDIR /app
+
+COPY ./target/release/synapse-password-reset /app/synapse-password-reset
+RUN chown app:app /app/tokens /app
+
+USER app
+
+ENTRYPOINT ["/app/synapse-password-reset"]

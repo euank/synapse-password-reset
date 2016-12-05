@@ -1,0 +1,11 @@
+FROM scorpil/rust:stable
+
+RUN apt-get update && apt-get install -y libssl-dev
+
+COPY ./Cargo.lock ./Cargo.toml ./LICENSE /rust/app/
+COPY ./src /rust/app//src
+
+WORKDIR /rust/app
+VOLUME /rust/app/target
+
+CMD cargo build --release
