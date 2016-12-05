@@ -1,5 +1,9 @@
 sudo: required
 language: rust
+branches:
+  only:
+  - master
+  - dev
 rust:
   - stable
   - beta
