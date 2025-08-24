@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Synapse password reset
 # Copyright (C) 2016 Euan Kemp

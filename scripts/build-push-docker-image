@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Synapse password reset
 # Copyright (C) 2016 Euan Kemp
@@ -34,5 +34,5 @@ docker build -t euank/synapse-password-reset:latest -f "${SOURCE}/Dockerfile.rel
 
 docker tag euank/synapse-password-reset:latest euank/synapse-password-reset:${short_hash}
 
-docker push euank/synapse-password-reset:latest 
+docker push euank/synapse-password-reset:latest
 docker push euank/synapse-password-reset:${short_hash}
