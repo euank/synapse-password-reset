@@ -106,6 +106,7 @@ fn render_template(
     Ok(result)
 }
 
+#[allow(unreachable_code)]
 fn main() {
     env_logger::init();
 
@@ -238,7 +239,7 @@ fn validate_uname_and_token(
     // TODO log non-ENOENT errs and treat them as server errors
 
     let mut token_uname = String::new();
-    if !f.read_to_string(&mut token_uname).is_ok() {
+    if f.read_to_string(&mut token_uname).is_err() {
         Err(UserError::InvalidTokenOrUsername)?
     }
 
@@ -251,8 +252,8 @@ fn validate_uname_and_token(
 // delete_token should be called after validate_uname_and_token since it assumes the token has been
 // validated
 fn delete_token(token_dir: &str, token: &str) -> Result<(), InternalError> {
-    let token_path = Path::new(token_dir).join(format!("{}", token).as_str());
-    std::fs::remove_file(token_path).map_err(|e| InternalError::TokenDeletionError(e))
+    let token_path = Path::new(token_dir).join(token.to_string().as_str());
+    std::fs::remove_file(token_path).map_err(InternalError::TokenDeletion)
 }
 
 fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(), InternalError> {
@@ -269,9 +270,9 @@ fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(
     )?;
 
     match updates {
-        0 => Err(InternalError::InvalidUserError),
+        0 => Err(InternalError::InvalidUser),
         1 => Ok(()),
-        _ => Err(InternalError::UnexpectedError),
+        _ => Err(InternalError::Unexpected),
     }
 }
 
@@ -366,19 +367,19 @@ impl Error for UserError {
 
 #[derive(Debug)]
 enum InternalError {
-    PgError(postgres::Error),
-    InvalidUserError,
-    UnexpectedError,
-    TokenDeletionError(std::io::Error),
+    Pg(postgres::Error),
+    InvalidUser,
+    Unexpected,
+    TokenDeletion(std::io::Error),
 }
 
 impl fmt::Display for InternalError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            InternalError::PgError(ref err) => write!(f, "postgres error: {}", err),
-            InternalError::InvalidUserError => write!(f, "invalid user error"),
-            InternalError::UnexpectedError => write!(f, "unexpected error"),
-            InternalError::TokenDeletionError(ref err) => write!(f, "token io error: {}", err),
+            InternalError::Pg(ref err) => write!(f, "postgres error: {}", err),
+            InternalError::InvalidUser => write!(f, "invalid user error"),
+            InternalError::Unexpected => write!(f, "unexpected error"),
+            InternalError::TokenDeletion(ref err) => write!(f, "token io error: {}", err),
         }
     }
 }
@@ -386,16 +387,16 @@ impl fmt::Display for InternalError {
 impl Error for InternalError {
     fn description(&self) -> &str {
         match *self {
-            InternalError::PgError(_) => "postgres error",
-            InternalError::InvalidUserError => "invalid user",
-            InternalError::UnexpectedError => "unexpected error",
-            InternalError::TokenDeletionError(_) => "token io error",
+            InternalError::Pg(_) => "postgres error",
+            InternalError::InvalidUser => "invalid user",
+            InternalError::Unexpected => "unexpected error",
+            InternalError::TokenDeletion(_) => "token io error",
         }
     }
 
     fn cause(&self) -> Option<&dyn Error> {
         match *self {
-            InternalError::PgError(ref err) => Some(err),
+            InternalError::Pg(ref err) => Some(err),
             _ => None,
         }
     }
@@ -403,7 +404,7 @@ impl Error for InternalError {
 
 impl From<postgres::Error> for InternalError {
     fn from(err: postgres::Error) -> InternalError {
-        InternalError::PgError(err)
+        InternalError::Pg(err)
     }
 }
 
