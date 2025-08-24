@@ -17,17 +17,15 @@
 #[macro_use]
 extern crate log;
 extern crate env_logger;
-#[macro_use]
 extern crate clap;
 #[macro_use]
 extern crate nickel;
-extern crate nickel_mustache;
-extern crate rustc_serialize;
+extern crate serde;
+extern crate serde_json;
 extern crate postgres;
 extern crate bcrypt;
 
 use std::path::Path;
-use std::ascii::AsciiExt;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
@@ -36,11 +34,10 @@ use std::io::prelude::*;
 
 use nickel::status::StatusCode;
 use nickel::{Nickel, HttpRouter, FormBody};
-use nickel_mustache::Render;
 
-use clap::{App, Arg};
+use clap::{Command, Arg};
 
-use postgres::{Connection, TlsMode};
+use postgres::{Client, NoTls};
 
 
 // TODO arg should be db-pool, not db-connect-str
@@ -94,42 +91,56 @@ fn reset_handler(token_dir: &str,
     Ok(())
 }
 
-fn main() {
-    env_logger::init().unwrap();
+fn render_template(template_path: &str, data: &HashMap<&str, String>) -> Result<String, Box<dyn Error>> {
+    let mut file = File::open(template_path)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    
+    let mut result = contents.clone();
+    for (key, value) in data.iter() {
+        let placeholder = format!("{{{{ {} }}}}", key);
+        result = result.replace(&placeholder, value);
+    }
+    
+    Ok(result)
+}
 
-    let matches = App::new("synapse-password-reset")
-        .version(crate_version!())
-        .author(crate_authors!())
-        .args(&[Arg::with_name("token-dir")
+fn main() {
+    env_logger::init();
+
+    let matches = Command::new("synapse-password-reset")
+        .version("0.1.0")
+        .author("Euan Kemp <euank@euank.com>")
+        .args(&[Arg::new("token-dir")
                     .help("sets the database directory to use")
-                    .takes_value(true)
-                    .short("t")
+                    .value_name("DIR")
+                    .short('t')
                     .long("token-dir")
                     .required(true),
-                Arg::with_name("pepper")
+                Arg::new("pepper")
                     .help("sets the hash pepper (e.g. from your synapse config)")
-                    .takes_value(true)
-                    .short("p")
+                    .value_name("PEPPER")
+                    .short('p')
                     .long("pepper")
                     .required(true),
-                Arg::with_name("db")
+                Arg::new("db")
                     .help("sets the postgres db to connect to (e.g. \
                            'postgres://user:pass@host:port/database')")
-                    .takes_value(true)
-                    .short("d")
+                    .value_name("DATABASE")
+                    .short('d')
                     .long("db")
                     .required(true),
-                Arg::with_name("bcrypt-rounds")
+                Arg::new("bcrypt-rounds")
                     .help("sets number of bcrypt rounds (should match your synapse config \
                            value, default 12)")
-                    .takes_value(true)
-                    .short("b")
+                    .value_name("ROUNDS")
+                    .short('b')
                     .long("bcrypt-rounds")
-                    .validator(|v| -> Result<(), String> {
+                    .value_parser(|v: &str| -> Result<u32, String> {
                 let rounds: u32 = v.parse()
                     .map_err(|_| "bcrypt-rounds must be an int".to_string())?;
                 match rounds {
-                    5...31 => Ok(()),
+                    5..=31 => Ok(rounds),
                     _ => Err("rounds must be between 5 and 31".to_string()),
                 }
             })
@@ -139,18 +150,22 @@ fn main() {
     let mut server = Nickel::new();
 
     server.get("/",
-               middleware!{ |_, res|
-        let data: HashMap<String, String> = HashMap::new();
-        return Render::render(res, "public/index.tpl", &data);
+               middleware!{ |_, mut res|
+        let data: HashMap<&str, String> = HashMap::new();
+        let html = render_template("public/index.tpl", &data).unwrap_or_else(|e| {
+            error!("Failed to render template: {}", e);
+            "Internal Server Error".to_string()
+        });
+        return res.send(html)
     });
 
     server.post("/",
                 middleware! {|req, mut res|
 
-        let token_dir = matches.value_of("token-dir").unwrap();
-        let pepper = matches.value_of("pepper").unwrap();
-        let db = matches.value_of("db").unwrap();
-        let bcrypt_rounds = value_t!(matches, "bcrypt-rounds", u32).unwrap_or(12);
+        let token_dir = matches.get_one::<String>("token-dir").unwrap();
+        let pepper = matches.get_one::<String>("pepper").unwrap();
+        let db = matches.get_one::<String>("db").unwrap();
+        let bcrypt_rounds = matches.get_one::<u32>("bcrypt-rounds").copied().unwrap_or(12);
 
         let response = reset_handler(token_dir, pepper, db, bcrypt_rounds, req);
 
@@ -170,8 +185,12 @@ fn main() {
             },
         }
 
-        return Render::render(res, "public/index.tpl", &data)
-
+        let html = render_template("public/index.tpl", &data).unwrap_or_else(|e| {
+            error!("Failed to render template: {}", e);
+            res.set(StatusCode::InternalServerError);
+            "Internal Server Error".to_string()
+        });
+        return res.send(html)
     });
 
 
@@ -226,7 +245,7 @@ fn delete_token(token_dir: &str, token: &str) -> Result<(), InternalError> {
 
 fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(), InternalError> {
     // TODO, connection pooling a level above this function
-    let conn = Connection::connect(db_conn, TlsMode::None)?;
+    let mut conn = Client::connect(db_conn, NoTls)?;
     // Based on the synapse readme here: https://github.com/matrix-org/synapse/blob/f9834a3d1a25d0a715718a53e10752399985e3aa/README.rst#password-reset
     // UPDATE users SET password_hash='$2a$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' WHERE
     // name='@test:test.com';
@@ -247,7 +266,7 @@ fn hash_password(password: &str, pepper: &str, rounds: u32) -> String {
     // https://github.com/matrix-org/synapse/blob/9bba6ebaa903a81cd94fada114aa71e20b685adb/scripts/hash_password
     let peppered_password = format!("{}{}", password, pepper);
 
-    let result = bcrypt::hash(peppered_password.as_ref(), rounds);
+    let result = bcrypt::hash(&peppered_password, rounds);
     // only possible error is `bcrypt-rounds` being too large/small, which we already validated.
     // TODO, this can be improved by defining a type in the bcrypt crate
     let crypt_hash = result.unwrap();
@@ -331,8 +350,7 @@ impl Error for UserError {
 
 #[derive(Debug)]
 enum InternalError {
-    PgConnectError(postgres::error::ConnectError),
-    PgError(postgres::error::Error),
+    PgError(postgres::Error),
     InvalidUserError,
     UnexpectedError,
     TokenDeletionError(std::io::Error),
@@ -342,7 +360,6 @@ impl fmt::Display for InternalError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             InternalError::PgError(ref err) => write!(f, "postgres error: {}", err),
-            InternalError::PgConnectError(ref err) => write!(f, "postgres error: {}", err),
             InternalError::InvalidUserError => write!(f, "invalid user error"),
             InternalError::UnexpectedError => write!(f, "unexpected error"),
             InternalError::TokenDeletionError(ref err) => write!(f, "token io error: {}", err),
@@ -353,15 +370,14 @@ impl fmt::Display for InternalError {
 impl Error for InternalError {
     fn description(&self) -> &str {
         match *self {
-            InternalError::PgError(ref err) => err.description(),
-            InternalError::PgConnectError(ref err) => err.description(),
+            InternalError::PgError(_) => "postgres error",
             InternalError::InvalidUserError => "invalid user",
             InternalError::UnexpectedError => "unexpected error",
-            InternalError::TokenDeletionError(ref err) => err.description(),
+            InternalError::TokenDeletionError(_) => "token io error",
         }
     }
 
-    fn cause(&self) -> Option<&Error> {
+    fn cause(&self) -> Option<&dyn Error> {
         match *self {
             InternalError::PgError(ref err) => Some(err),
             _ => None,
@@ -369,20 +385,14 @@ impl Error for InternalError {
     }
 }
 
-impl From<postgres::error::ConnectError> for InternalError {
-    fn from(err: postgres::error::ConnectError) -> InternalError {
-        InternalError::PgConnectError(err)
-    }
-}
-
-impl From<postgres::error::Error> for InternalError {
-    fn from(err: postgres::error::Error) -> InternalError {
+impl From<postgres::Error> for InternalError {
+    fn from(err: postgres::Error) -> InternalError {
         InternalError::PgError(err)
     }
 }
 
 impl From<InternalError> for String {
     fn from(err: InternalError) -> String {
-        err.description().to_string()
+        err.to_string()
     }
 }
