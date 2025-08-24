@@ -5,7 +5,7 @@ no_tls: True
 tls_certificate_path: /tmp/tls.crt
 tls_private_key_path: /tmp/tls.key
 tls_dh_params_path: /conf/dhparam.pem
-server_name: "synapse_password_reset.local"
+server_name: "synapse.test.local"
 
 pid_file: /var/run/homeserver.pid
 web_client: False
@@ -17,8 +17,7 @@ listeners:
     type: http
     x_forwarded: true
     resources:
-      - names: [client, webclient]
-        compress: false
+      - names: [client]
 
 database:
   name: "psycopg2"
@@ -32,8 +31,6 @@ database:
 
 event_cache_size: "10K"
 verbose: 0
-log_file: "/var/log/synapse/homeserver.log"
-log_config: "/base-conf/log.config"
 
 rc_messages_per_second: 0.2
 rc_message_burst_count: 20.0
@@ -55,6 +52,7 @@ url_preview_enabled: False
 max_spider_size: "1M"
 enable_registration: False
 registration_shared_secret: "registration-secret"
+matrix_synapse_admin_enabled: true
 user_creation_max_duration: 1209600000
 bcrypt_rounds: 12
 allow_guest_access: False
@@ -68,8 +66,6 @@ room_invite_state_types:
     - "m.room.name"
 macaroon_secret_key: "secret"
 expire_access_token: False
-signing_key_path: "/tmp/signing.key"
-old_signing_keys: {}
 key_refresh_interval: "300s"
 perspectives:
   servers: {}

@@ -16,41 +16,41 @@
 
 #[macro_use]
 extern crate log;
-extern crate env_logger;
 extern crate clap;
+extern crate env_logger;
 #[macro_use]
 extern crate nickel;
+extern crate bcrypt;
+extern crate postgres;
 extern crate serde;
 extern crate serde_json;
-extern crate postgres;
-extern crate bcrypt;
 
-use std::path::Path;
 use std::collections::HashMap;
 use std::error::Error;
-use std::fs::File;
 use std::fmt;
+use std::fs::File;
 use std::io::prelude::*;
+use std::path::Path;
 
 use nickel::status::StatusCode;
-use nickel::{Nickel, HttpRouter, FormBody};
+use nickel::{FormBody, HttpRouter, Nickel};
 
-use clap::{Command, Arg};
+use clap::{Arg, Command};
 
 use postgres::{Client, NoTls};
 
-
 // TODO arg should be db-pool, not db-connect-str
-fn reset_handler(token_dir: &str,
-                 pepper: &str,
-                 db: &str,
-                 bcrypt_rounds: u32,
-                 req: &mut nickel::Request)
-                 -> Result<(), ResetRequestError> {
-
+fn reset_handler(
+    token_dir: &str,
+    pepper: &str,
+    db: &str,
+    bcrypt_rounds: u32,
+    req: &mut nickel::Request,
+) -> Result<(), ResetRequestError> {
     let form = req.form_body().map_err(|_| UserError::EmptyForm)?;
 
-    let uname = form.get("username")
+    let uname = form
+        .get("username")
         .map(|u| u.trim())
         .and_then(|x| match x {
             "" => None,
@@ -58,23 +58,21 @@ fn reset_handler(token_dir: &str,
         })
         .ok_or(UserError::EmptyUsername)?;
 
-    let token = form.get("token")
+    let token = form
+        .get("token")
         .map(|u| u.trim())
-        .and_then(|x| {
-            match x {
-                "" => None,
-                x => Some(x),
-            }
+        .and_then(|x| match x {
+            "" => None,
+            x => Some(x),
         })
         .ok_or(UserError::EmptyToken)?;
 
-    let pass = form.get("password")
+    let pass = form
+        .get("password")
         .map(|u| u.trim())
-        .and_then(|x| {
-            match x {
-                "" => None,
-                x => Some(x),
-            }
+        .and_then(|x| match x {
+            "" => None,
+            x => Some(x),
         })
         .ok_or(UserError::EmptyPassword)?;
 
@@ -91,17 +89,20 @@ fn reset_handler(token_dir: &str,
     Ok(())
 }
 
-fn render_template(template_path: &str, data: &HashMap<&str, String>) -> Result<String, Box<dyn Error>> {
+fn render_template(
+    template_path: &str,
+    data: &HashMap<&str, String>,
+) -> Result<String, Box<dyn Error>> {
     let mut file = File::open(template_path)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
-    
+
     let mut result = contents.clone();
     for (key, value) in data.iter() {
         let placeholder = format!("{{{{ {} }}}}", key);
         result = result.replace(&placeholder, value);
     }
-    
+
     Ok(result)
 }
 
@@ -111,104 +112,117 @@ fn main() {
     let matches = Command::new("synapse-password-reset")
         .version("0.1.0")
         .author("Euan Kemp <euank@euank.com>")
-        .args(&[Arg::new("token-dir")
-                    .help("sets the database directory to use")
-                    .value_name("DIR")
-                    .short('t')
-                    .long("token-dir")
-                    .required(true),
-                Arg::new("pepper")
-                    .help("sets the hash pepper (e.g. from your synapse config)")
-                    .value_name("PEPPER")
-                    .short('p')
-                    .long("pepper")
-                    .required(true),
-                Arg::new("db")
-                    .help("sets the postgres db to connect to (e.g. \
-                           'postgres://user:pass@host:port/database')")
-                    .value_name("DATABASE")
-                    .short('d')
-                    .long("db")
-                    .required(true),
-                Arg::new("bcrypt-rounds")
-                    .help("sets number of bcrypt rounds (should match your synapse config \
-                           value, default 12)")
-                    .value_name("ROUNDS")
-                    .short('b')
-                    .long("bcrypt-rounds")
-                    .value_parser(|v: &str| -> Result<u32, String> {
-                let rounds: u32 = v.parse()
-                    .map_err(|_| "bcrypt-rounds must be an int".to_string())?;
-                match rounds {
-                    5..=31 => Ok(rounds),
-                    _ => Err("rounds must be between 5 and 31".to_string()),
-                }
-            })
-                    .required(false)])
+        .args(&[
+            Arg::new("token-dir")
+                .help("sets the database directory to use")
+                .value_name("DIR")
+                .short('t')
+                .long("token-dir")
+                .required(true),
+            Arg::new("pepper")
+                .help("sets the hash pepper (e.g. from your synapse config)")
+                .value_name("PEPPER")
+                .short('p')
+                .long("pepper")
+                .required(true),
+            Arg::new("db")
+                .help(
+                    "sets the postgres db to connect to (e.g. \
+                           'postgres://user:pass@host:port/database')",
+                )
+                .value_name("DATABASE")
+                .short('d')
+                .long("db")
+                .required(true),
+            Arg::new("bcrypt-rounds")
+                .help(
+                    "sets number of bcrypt rounds (should match your synapse config \
+                           value, default 12)",
+                )
+                .value_name("ROUNDS")
+                .short('b')
+                .long("bcrypt-rounds")
+                .value_parser(|v: &str| -> Result<u32, String> {
+                    let rounds: u32 = v
+                        .parse()
+                        .map_err(|_| "bcrypt-rounds must be an int".to_string())?;
+                    match rounds {
+                        5..=31 => Ok(rounds),
+                        _ => Err("rounds must be between 5 and 31".to_string()),
+                    }
+                })
+                .required(false),
+        ])
         .get_matches();
 
     let mut server = Nickel::new();
 
-    server.get("/",
-               middleware!{ |_, mut res|
-        let data: HashMap<&str, String> = HashMap::new();
-        let html = render_template("public/index.tpl", &data).unwrap_or_else(|e| {
-            error!("Failed to render template: {}", e);
-            "Internal Server Error".to_string()
-        });
-        return res.send(html)
-    });
+    server.get(
+        "/",
+        middleware! { |_, mut res|
+            let mut data: HashMap<&str, String> = HashMap::new();
+            data.insert("notice", "".to_string());
+            let html = render_template("public/index.tpl", &data).unwrap_or_else(|e| {
+                error!("Failed to render template: {}", e);
+                "Internal Server Error".to_string()
+            });
+            return res.send(html)
+        },
+    );
 
-    server.post("/",
-                middleware! {|req, mut res|
+    server.post(
+        "/",
+        middleware! {|req, mut res|
 
-        let token_dir = matches.get_one::<String>("token-dir").unwrap();
-        let pepper = matches.get_one::<String>("pepper").unwrap();
-        let db = matches.get_one::<String>("db").unwrap();
-        let bcrypt_rounds = matches.get_one::<u32>("bcrypt-rounds").copied().unwrap_or(12);
+            let token_dir = matches.get_one::<String>("token-dir").unwrap();
+            let pepper = matches.get_one::<String>("pepper").unwrap();
+            let db = matches.get_one::<String>("db").unwrap();
+            let bcrypt_rounds = matches.get_one::<u32>("bcrypt-rounds").copied().unwrap_or(12);
 
-        let response = reset_handler(token_dir, pepper, db, bcrypt_rounds, req);
+            let response = reset_handler(token_dir, pepper, db, bcrypt_rounds, req);
 
-        let mut data: HashMap<&str, String> = HashMap::new();
-        match response {
-            Ok(_) => {
-                data.insert("notice", "Password successfully changed".to_string());
-            },
-            Err(ResetRequestError::UserError(err)) => {
-                res.set(StatusCode::BadRequest);
-                data.insert("notice", format!("{}", err));
-            },
-            Err(ResetRequestError::InternalError(err)) => {
-                warn!("error handling request: {}", err);
+            let mut data: HashMap<&str, String> = HashMap::new();
+            match response {
+                Ok(_) => {
+                    data.insert("notice", "Password successfully changed".to_string());
+                },
+                Err(ResetRequestError::UserError(err)) => {
+                    res.set(StatusCode::BadRequest);
+                    data.insert("notice", format!("{}", err));
+                },
+                Err(ResetRequestError::InternalError(err)) => {
+                    warn!("error handling request: {}", err);
+                    res.set(StatusCode::InternalServerError);
+                    data.insert("notice", "Internal server error".to_string());
+                },
+            }
+
+            let html = render_template("public/index.tpl", &data).unwrap_or_else(|e| {
+                error!("Failed to render template: {}", e);
                 res.set(StatusCode::InternalServerError);
-                data.insert("notice", "Internal server error".to_string());
-            },
-        }
-
-        let html = render_template("public/index.tpl", &data).unwrap_or_else(|e| {
-            error!("Failed to render template: {}", e);
-            res.set(StatusCode::InternalServerError);
-            "Internal Server Error".to_string()
-        });
-        return res.send(html)
-    });
-
+                "Internal Server Error".to_string()
+            });
+            return res.send(html)
+        },
+    );
 
     let _ = server.listen("0.0.0.0:6767").unwrap();
 }
 
 fn validate_password(pass: &str) -> Result<(), UserError> {
     if pass.len() < 10 {
-        return Err(UserError::InsecurePassword("password must be at least 10 characters long"
-            .to_string()));
+        return Err(UserError::InsecurePassword(
+            "password must be at least 10 characters long".to_string(),
+        ));
     }
     Ok(())
 }
 
-fn validate_uname_and_token(token_dir: &str,
-                            uname: &str,
-                            token: &str)
-                            -> Result<(), ResetRequestError> {
+fn validate_uname_and_token(
+    token_dir: &str,
+    uname: &str,
+    token: &str,
+) -> Result<(), ResetRequestError> {
     // token database is just the filesystem (fuckit shipit).
     // Tokens are stored in the hierarchy "$token_dir/$token".
     // The token file contains the string "username".
@@ -241,8 +255,6 @@ fn delete_token(token_dir: &str, token: &str) -> Result<(), InternalError> {
     std::fs::remove_file(token_path).map_err(|e| InternalError::TokenDeletionError(e))
 }
 
-
-
 fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(), InternalError> {
     // TODO, connection pooling a level above this function
     let mut conn = Client::connect(db_conn, NoTls)?;
@@ -251,8 +263,10 @@ fn set_new_password(db_conn: &str, uname: &str, password_hash: &str) -> Result<(
     // name='@test:test.com';
     // is the query we want
     info!("updating password for {}", uname);
-    let updates = conn.execute("UPDATE users SET password_hash = $1 WHERE name = $2",
-                 &[&password_hash, &uname])?;
+    let updates = conn.execute(
+        "UPDATE users SET password_hash = $1 WHERE name = $2",
+        &[&password_hash, &uname],
+    )?;
 
     match updates {
         0 => Err(InternalError::InvalidUserError),
@@ -274,7 +288,8 @@ fn hash_password(password: &str, pepper: &str, rounds: u32) -> String {
     // supports $2y$.
     // The differences are tiny, so it turns out that just pretending this is $2a$ works at least.
     // Some side effects may occur, please consult your local crypto expert before use.
-    crypt_hash.chars()
+    crypt_hash
+        .chars()
         .enumerate()
         .map(|(i, c)| {
             if i == 2 {
@@ -305,7 +320,6 @@ impl From<InternalError> for ResetRequestError {
     }
 }
 
-
 #[derive(Debug)]
 enum UserError {
     EmptyForm,
@@ -326,8 +340,10 @@ impl fmt::Display for UserError {
             UserError::EmptyUsername => write!(f, "username must be set"),
             UserError::InvalidToken => write!(f, "invalid token: must be alphanumeric"),
             UserError::InvalidTokenOrUsername => {
-                write!(f,
-                       "invalid token + username combination; one or both were invalid")
+                write!(
+                    f,
+                    "invalid token + username combination; one or both were invalid"
+                )
             }
             UserError::InsecurePassword(ref s) => write!(f, "bad password choice: {}", s),
         }

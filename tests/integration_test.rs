@@ -16,26 +16,27 @@
 
 #[cfg(feature = "integ-tests")]
 mod integ_tests {
-    extern crate reqwest;
-    extern crate url;
     extern crate rand;
+    extern crate reqwest;
     extern crate serde;
     extern crate serde_json;
+    extern crate url;
 
-    use self::url::form_urlencoded;
+    use self::rand::Rng;
     use self::reqwest::blocking::Client;
     use self::reqwest::StatusCode;
-    use self::rand::Rng;
-    use std::io::Write;
-    use std::fs::File;
+    use self::url::form_urlencoded;
     use serde::Serialize;
+    use std::fs::File;
+    use std::io::Write;
 
     fn register_user(c: &Client, uname: String, password: String) {
         let encoded: String = form_urlencoded::Serializer::new(String::new())
             .append_pair("Username", uname.as_ref())
             .append_pair("Password", password.as_ref())
             .finish();
-        let res = c.post("http://localhost:8082")
+        let res = c
+            .post("http://localhost:8082")
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(encoded)
             .send()
@@ -43,17 +44,19 @@ mod integ_tests {
         assert!(res.status().is_success());
     }
 
-    fn reset_password(c: &Client,
-                      uname: String,
-                      token: String,
-                      password: String)
-                      -> (StatusCode, String) {
+    fn reset_password(
+        c: &Client,
+        uname: String,
+        token: String,
+        password: String,
+    ) -> (StatusCode, String) {
         let encoded = form_urlencoded::Serializer::new(String::new())
             .append_pair("username", uname.as_ref())
             .append_pair("token", token.as_ref())
             .append_pair("password", password.as_ref())
             .finish();
-        let res = c.post("http://localhost:6767")
+        let res = c
+            .post("http://localhost:6767")
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(encoded)
             .send()
@@ -76,18 +79,29 @@ mod integ_tests {
             S: serde::Serializer,
         {
             use serde::ser::SerializeMap;
+
+            // Create an intermediate structure for the identifier
+            #[derive(Serialize)]
+            struct Identifier<'a> {
+                #[serde(rename = "type")]
+                id_type: &'static str,
+                user: &'a str,
+            }
+            let identifier = Identifier {
+                id_type: "m.id.user",
+                user: &self.user,
+            };
             let mut map = serializer.serialize_map(Some(3))?;
             map.serialize_entry("type", "m.login.password")?;
-            map.serialize_entry("user", &self.user)?;
+            map.serialize_entry("identifier", &identifier)?;
             map.serialize_entry("password", &self.password)?;
             map.end()
         }
     }
 
-    fn login_with_user(c: &Client,
-                       login: PasswordLoginRequest)
-                       -> Result<(), StatusCode> {
-        let resp = c.post("http://localhost:8080/_matrix/client/r0/login")
+    fn login_with_user(c: &Client, login: PasswordLoginRequest) -> Result<(), StatusCode> {
+        let resp = c
+            .post("http://localhost:8080/_matrix/client/v3/login")
             .header("Content-Type", "application/json")
             .body(serde_json::to_string(&login).unwrap())
             .send()
@@ -108,15 +122,17 @@ mod integ_tests {
         let username1 = format!("user{}", rng.random::<u64>());
 
         register_user(&c, username1.clone(), orig_pass.clone());
-        let result = login_with_user(&c,
-                                     PasswordLoginRequest {
-                                         user: username1.clone(),
-                                         password: orig_pass.clone(),
-                                     });
+        let result = login_with_user(
+            &c,
+            PasswordLoginRequest {
+                user: username1.clone(),
+                password: orig_pass.clone(),
+            },
+        );
         assert!(result.is_ok());
 
         let token = format!("token{}", rng.random::<u64>());
-        let full_uname = format!("@{}:synapse_password_reset.local", username1);
+        let full_uname = format!("@{}:synapse.test.local", username1);
         let new_pass = format!("newpassword{}", rng.random::<u64>());
 
         // Fail to reset password due to this token not being in the token-db yet
@@ -129,20 +145,27 @@ mod integ_tests {
         let (sc, body) = reset_password(&c, full_uname.clone(), token.clone(), new_pass.clone());
         assert!(sc.is_success(), "error response: {}", body);
 
-        let result = login_with_user(&c,
-                                     PasswordLoginRequest {
-                                         user: username1.clone(),
-                                         password: orig_pass.clone(),
-                                     });
+        let result = login_with_user(
+            &c,
+            PasswordLoginRequest {
+                user: username1.clone(),
+                password: orig_pass.clone(),
+            },
+        );
         assert!(result.is_err());
 
         // New password
-        let result = login_with_user(&c,
-                                     PasswordLoginRequest {
-                                         user: username1.clone(),
-                                         password: new_pass.clone(),
-                                     });
-        assert!(result.is_ok(),
-                "did not expect err, but was: {:?}", result.err());
+        let result = login_with_user(
+            &c,
+            PasswordLoginRequest {
+                user: username1.clone(),
+                password: new_pass.clone(),
+            },
+        );
+        assert!(
+            result.is_ok(),
+            "did not expect err, but was: {:?}",
+            result.err()
+        );
     }
 }
